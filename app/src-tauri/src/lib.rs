@@ -33,7 +33,8 @@ static LOG_PATH: OnceLock<PathBuf> = OnceLock::new();
 
 /// Appends a line to `backdrop.log` in the app data folder (kept under 1 MB).
 pub fn log(msg: impl std::fmt::Display) {
-    eprintln!("[backdrop] {msg}");
+    // eprintln! panics when stderr is a broken pipe, and release builds abort on panic.
+    let _ = writeln!(std::io::stderr(), "[backdrop] {msg}");
     let Some(path) = LOG_PATH.get() else { return };
     if std::fs::metadata(path).map(|m| m.len() > 1 << 20).unwrap_or(false) {
         let _ = std::fs::rename(path, path.with_extension("log.old"));
