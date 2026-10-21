@@ -1,0 +1,39 @@
+# /etc/systemd/system/backdrop.service
+[Unit]
+Description=Backdrop wallpaper library
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=backdrop
+Group=backdrop
+Environment=BACKDROP_DATA=/var/lib/backdrop
+Environment=BACKDROP_ADDR=127.0.0.1:8092
+ExecStart=/opt/backdrop/backdrop-server
+Restart=on-failure
+RestartSec=5
+StateDirectory=backdrop
+StateDirectoryMode=0750
+
+# It only reads and writes its own library and runs ffmpeg/ffprobe for thumbnails.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

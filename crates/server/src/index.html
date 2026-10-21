@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backdrop library</title>
+<style>
+  :root { --bg:#0b0c0f; --fg:#e8e9ee; --dim:#8a8d99; --line:#1d1f26; --acc:#7c8cff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display:flex; align-items:baseline; gap:16px; padding:28px 32px 8px; }
+  h1 { margin:0; font-size:20px; font-weight:600; letter-spacing:.2px; }
+  .dim { color:var(--dim); }
+  main { padding:8px 32px 48px; }
+  .drop { margin:16px 0 24px; padding:22px; border:1px dashed #2a2d38; border-radius:10px; text-align:center; color:var(--dim); cursor:pointer; }
+  .drop.over { border-color:var(--acc); color:var(--fg); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:18px; }
+  .card img, .card .ph { width:100%; aspect-ratio:16/9; object-fit:cover; border-radius:8px; background:#15171d; display:block; }
+  .card .ph { display:flex; align-items:center; justify-content:center; color:var(--dim); font-size:12px; }
+  .row { display:flex; justify-content:space-between; gap:8px; margin-top:6px; }
+  .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  button { background:none; border:0; color:var(--dim); cursor:pointer; padding:0; font:inherit; }
+  button:hover { color:var(--fg); }
+  .bar { height:2px; background:var(--acc); width:0; transition:width .15s; }
+  h2 { font-size:13px; font-weight:600; color:var(--dim); text-transform:uppercase; letter-spacing:.8px; margin:36px 0 10px; }
+  a { color:var(--acc); text-decoration:none; }
+  #dl div { padding:4px 0; }
+</style>
+</head>
+<body>
+<header><h1>Backdrop</h1><span class="dim" id="count"></span></header>
+<main>
+  <div class="drop" id="drop">Drop videos, images, .html or .zip wallpapers here, or click to choose
+    <div class="bar" id="bar"></div>
+  </div>
+  <input type="file" id="pick" multiple hidden accept="video/*,image/*,.html,.htm,.zip,.mkv">
+  <div class="grid" id="grid"></div>
+  <h2>Apps</h2>
+  <div id="dl" class="dim">Nothing here yet.</div>
+  <p class="dim" style="margin-top:28px">In the app, set the library address to <code id="here"></code></p>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+$('here').textContent = location.origin;
+const fmtSize = (b) => b > 1e9 ? (b / 1e9).toFixed(1) + ' GB' : b > 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1e3)) + ' KB';
+const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+async function load() {
+  const items = await (await fetch('/api/items')).json();
+  $('count').textContent = items.length + (items.length === 1 ? ' wallpaper' : ' wallpapers');
+  $('grid').innerHTML = items.map((i) => `
+    <div class="card" data-id="${i.id}">
+      <img src="/api/items/${i.id}/thumb" loading="lazy" onerror="this.outerHTML='<div class=ph>${i.kind}</div>'">
+      <div class="row"><span class="name" title="${esc(i.name)}">${esc(i.name)}</span>
+        <span class="dim">${i.kind} · ${fmtSize(i.size)}</span></div>
+      <div class="row"><span>
+        <a href="/api/items/${i.id}/file" download>download</a></span>
+        <span><button data-act="rename">rename</button> · <button data-act="delete">delete</button></span></div>
+    </div>`).join('');
+  const dl = await (await fetch('/downloads')).json();
+  if (dl.length) $('dl').innerHTML = dl.map((f) => `<div><a href="/downloads/${encodeURIComponent(f.name)}">${esc(f.name)}</a> <span class="dim">${fmtSize(f.size)}</span></div>`).join('');
+}
+
+$('grid').addEventListener('click', async (e) => {
+  const act = e.target.dataset.act; if (!act) return;
+  const id = e.target.closest('.card').dataset.id;
+  if (act === 'delete' && confirm('Delete this wallpaper from the library?')) {
+    await fetch('/api/items/' + id, { method: 'DELETE' }); load();
+  }
+  if (act === 'rename') {
+    const name = prompt('Name'); if (!name) return;
+    await fetch('/api/items/' + id, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) });
+    load();
+  }
+});
+
+function upload(file) {
+  return new Promise((resolve) => {
+    const x = new XMLHttpRequest();
+    x.open('POST', '/api/upload?filename=' + encodeURIComponent(file.name));
+    x.upload.onprogress = (e) => { $('bar').style.width = (100 * e.loaded / e.total) + '%'; };
+    x.onload = () => { if (x.status >= 400) alert(file.name + ': ' + x.responseText); resolve(); };
+    x.onerror = () => { alert(file.name + ': upload failed'); resolve(); };
+    x.send(file);
+  });
+}
+async function uploadAll(files) {
+  for (const f of files) await upload(f);
+  $('bar').style.width = '0';
+  load();
+}
+
+const drop = $('drop');
+drop.onclick = () => $('pick').click();
+$('pick').onchange = (e) => uploadAll([...e.target.files]);
+drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); };
+drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); uploadAll([...e.dataTransfer.files]); };
+load();
+</script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Backdrop</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="titlebar" data-tauri-drag-region>
+  <div class="tb-brand" data-tauri-drag-region>
+    <svg class="tb-mark" viewBox="0 0 16 16"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8b5cf6"/><stop offset="1" stop-color="#38bdf8"/></linearGradient></defs><rect x="1" y="1" width="14" height="14" rx="3.5" fill="url(#g)"/><path d="M3 12 L6.5 7.5 L8.6 10 L10.3 8.4 L13 12 Z" fill="#07080b" opacity=".85"/><circle cx="10.6" cy="5" r="1.3" fill="#fff"/></svg>
+    Backdrop
+  </div>
+  <nav class="nav-tabs" id="tabs"></nav>
+  <div class="tb-spacer" data-tauri-drag-region></div>
+  <button class="tb-live" id="live" data-act="togglePause" title="Pause or resume every wallpaper"></button>
+  <div class="win-ctl" id="winctl">
+    <button data-win="min" title="Minimize"><svg viewBox="0 0 16 16"><path d="M3.5 8h9"/></svg></button>
+    <button data-win="max" title="Maximize"><svg viewBox="0 0 16 16"><rect x="3.5" y="3.5" width="9" height="9" rx="1"/></svg></button>
+    <button data-win="close" class="close" title="Close (Backdrop keeps running in the tray)"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+  </div>
+</header>
+<main id="page"></main>
+<div id="drop"><div>Drop to add to your library</div></div>
+<div id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>

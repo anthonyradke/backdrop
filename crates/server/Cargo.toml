@@ -1,0 +1,17 @@
+[package]
+name = "backdrop-server"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+backdrop-common = { path = "../common" }
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "process", "signal"] }
+tower-http = { version = "0.6", features = ["fs", "trace"] }
+tower = "0.5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+futures-util = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
