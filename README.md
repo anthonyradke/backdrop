@@ -1,93 +1,184 @@
-# Backdrop
+<p align="center">
+  <img src="docs/icon.png" width="128" height="128" alt="Backdrop icon">
+</p>
 
-A small live-wallpaper app for macOS and Windows, my lightweight take on Wallpaper Engine. It plays videos,
-GIFs and HTML pages behind the desktop icons, and hands still images to the OS as a normal wallpaper. The
-wallpaper library can live on my home server, so every computer sees the same collection.
+<h1 align="center">Backdrop</h1>
 
-## What it does
+<p align="center">Live wallpapers for macOS and Windows, with an optional self-hosted library server.</p>
 
-- Video (MP4, WebM, MOV), animated GIF and HTML/canvas/WebGL wallpapers play behind the desktop icons.
-  Still images (JPG, PNG, WebP…) are set through the OS wallpaper API, so they cost nothing at all.
-- A different wallpaper per display, or the same one on all of them.
-- Wallpapers pause when a maximized or fullscreen app covers them, on battery, or from the tray.
-- Add files by dragging them into the window or with Add files. An HTML wallpaper is a folder with an
-  `index.html`, a `.zip` of one, or a single `.html` file.
-- The shared library on the server: upload from any computer, download on another, or open the server's
-  address in a browser to browse and upload from anything (phone included). Wallpapers always play from
-  the local disk; picking one that's only on the server downloads it first.
-- Closing the window keeps wallpapers running from the tray (menu bar on the Mac) and frees the window's
-  memory. Start at login is a toggle in Settings.
+---
 
-## How it works
+Backdrop plays videos, animated GIFs and HTML pages behind the desktop icons. Still images are passed to
+the operating system as a regular wallpaper, so they use no resources once set. Wallpapers can be kept in
+a shared library on your own server, so every computer you use sees the same collection.
 
-The app is [Tauri 2](https://tauri.app) (Rust plus the system WebView, so no bundled browser): about 5 MB
-on Windows and a 2 MB installer. Each display with a moving wallpaper gets one borderless WebView window
-that plays it with hardware video decoding.
+The app is built on [Tauri 2](https://tauri.app) and uses the system WebView instead of a bundled browser.
+The Windows build is about 5 MB installed, from a 2 MB installer.
 
-- On Windows the player window is reparented into Explorer's desktop window, below the icons. Before
-  Windows 11 24H2 that's the `WorkerW` window Explorer creates when sent message `0x052C`; on 24H2's
-  "raised desktop" it becomes a layered child of `Progman` placed under `SHELLDLL_DefView` (the same
-  approach as Lively Wallpaper). If Explorer restarts, the player is re-created.
-- On macOS the player window sits at the desktop window level (above the system wallpaper, below the
-  Finder icons), on every Space, ignoring the mouse, left out of Mission Control and Cmd-Tab.
-- Files reach the player through a `media://` protocol with HTTP range support. If a WebView can't play
-  video that way, the player switches to a tiny HTTP server on `127.0.0.1` (random port, secret token in
-  the path) that serves the same files.
-- Items are named by the first 16 hex characters of their SHA-256, so the same file has the same id on
-  every computer and on the server, and duplicates are free.
+## Features
 
-The server is a single Rust binary that keeps files on disk (`items/<id>/meta.json`, the media file and
-`thumb.jpg`). It makes thumbnails with ffmpeg; HTML wallpapers get none. It has no login, so run it where
-only your own devices can reach it. Mine is behind Tailscale.
+- Video (MP4, WebM, MOV), animated GIF and HTML/canvas/WebGL wallpapers rendered behind the desktop icons
+- Still images (JPG, PNG, WebP and others) set through the native wallpaper API
+- A separate wallpaper per display, or one across all displays
+- Fill, fit and stretch scaling, with optional audio and volume control
+- Automatic pause when a maximized or fullscreen window covers the wallpaper, or when running on battery
+- Drag-and-drop import; HTML wallpapers can be a folder with an `index.html`, a `.zip` of one, or a single
+  `.html` file
+- Optional library server: upload from one computer, download on another, or manage the library from any
+  browser, including a phone
+- Runs from the system tray (menu bar on macOS) with the main window closed, and can start at login
 
-## Layout
+## Requirements
 
-- `crates/common`: types shared by the app and the server (items, ids, zip packing for HTML wallpapers)
-- `crates/server`: the library server and its browser page (`src/index.html`)
-- `app/src-tauri`: the app
-  - `engine.rs` runs once a second: one player per display, native images, pausing
-  - `platform/windows.rs`, `platform/macos.rs`: putting players on the desktop, native wallpapers,
-    covered-screen and battery checks (`platform/other.rs` is a plain-window fallback for Linux, used only
-    for development)
-  - `library.rs` local library, `remote.rs` server client, `media.rs` and `loopback.rs` serve files to the
-    players, `commands.rs` what the UI calls
-- `app/ui`: the library window and the player page, plain HTML/CSS/JS with no build step
-- `deploy/`, `install.sh`: the server's systemd unit and installer
-- `scripts/`: build scripts
+| Component | Requirement |
+|---|---|
+| macOS app | macOS 12 or later |
+| Windows app | Windows 10 or 11 with WebView2 (preinstalled on Windows 11) |
+| Library server | Linux with `ffmpeg` on the `PATH` for thumbnails |
 
-## Building
+## Installation
 
-The Windows app cross-compiles on Linux with [cargo-xwin](https://github.com/rust-cross/cargo-xwin):
+Builds are not yet code-signed.
+
+On Windows, run `Backdrop_<version>_x64-setup.exe`. SmartScreen warns on first launch; choose
+*More info* > *Run anyway*. The installer is per-user and needs no administrator rights.
+
+On macOS, open the `.dmg` and drag Backdrop to Applications. If Gatekeeper blocks the first launch, allow it
+under System Settings > Privacy & Security > *Open Anyway*.
+
+To connect a library server, enter its address in Settings.
+
+## Architecture
 
 ```
+crates/
+  common/      types shared by the app and the server: items, ids, zip packing for HTML wallpapers
+  server/      library server and its browser interface (src/index.html)
+app/
+  src-tauri/   desktop app (Rust)
+  ui/          library window and player page; plain HTML, CSS and JavaScript with no build step
+deploy/        systemd unit for the server
+scripts/       build scripts for macOS and Windows
+```
+
+### Desktop app
+
+Each display showing a moving wallpaper gets one borderless WebView window that plays it with hardware
+video decoding. A one-second engine loop (`engine.rs`) assigns players to displays, applies native image
+wallpapers, and handles pausing.
+
+#### Windows (`platform/windows.rs`)
+
+The player window is reparented into Explorer's desktop window,
+below the icons. Before Windows 11 24H2 this is the `WorkerW` window Explorer creates in response to
+message `0x052C`. On 24H2 and later, with the raised desktop, the player becomes a layered child of
+`Progman` placed beneath `SHELLDLL_DefView`, the same approach used by Lively Wallpaper. If Explorer
+restarts, players are recreated automatically.
+
+#### macOS (`platform/macos.rs`)
+
+The player window is placed at the desktop window level, above the system
+wallpaper and below the Finder icons. It appears on every Space, ignores mouse input, and is excluded from
+Mission Control and the app switcher.
+
+#### Media delivery (`media.rs`, `loopback.rs`)
+
+Files reach the player through a custom `media://`
+protocol with HTTP range support. If a WebView cannot play video through that protocol, the player falls
+back to a loopback HTTP server bound to `127.0.0.1` on a random port, with a per-session secret token in
+the request path.
+
+#### Item identity
+
+Each item is identified by the first 16 hex characters of its SHA-256 hash. The same
+file has the same id on every computer and on the server, so duplicates are detected without extra
+bookkeeping. Wallpapers always play from local disk; selecting one that exists only on the server
+downloads it first.
+
+### Library server
+
+The server is a single Rust binary with no database. Each item is stored as `items/<id>/` containing
+`meta.json`, the media file, and a `thumb.jpg` generated with ffmpeg (HTML wallpapers have no thumbnail).
+The item list is rebuilt from the metadata files at startup.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/` | Browser interface |
+| `GET` | `/api/health` | Health check |
+| `GET` | `/api/items` | List items |
+| `POST` | `/api/upload` | Upload an item |
+| `GET` `PATCH` `DELETE` | `/api/items/{id}` | Read, rename or delete an item |
+| `GET` | `/api/items/{id}/file` | Download the media file |
+| `GET` `PUT` | `/api/items/{id}/thumb` | Read or replace the thumbnail |
+| `GET` | `/downloads`, `/downloads/{name}` | App installers published by the server |
+
+Configuration is through environment variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `BACKDROP_ADDR` | `127.0.0.1:8092` | Listen address |
+| `BACKDROP_DATA` | `./backdrop-library` | Data directory |
+| `RUST_LOG` | `info` | Log level |
+
+> [!WARNING]
+> The server has no authentication. Run it only on a network limited to your own devices, such as a
+> Tailscale tailnet or a LAN behind a firewall. Do not expose it to the internet.
+
+## Building from source
+
+Requires a recent stable Rust toolchain.
+
+### Windows (cross-compiled from Linux)
+
+The Windows app is built on Linux with [cargo-xwin](https://github.com/rust-cross/cargo-xwin):
+
+```sh
 rustup target add x86_64-pc-windows-msvc
 cargo install --locked cargo-xwin tauri-cli
 sudo apt install nsis lld clang
-scripts/build-windows.sh            # dist/Backdrop_<version>_x64-setup.exe
+scripts/build-windows.sh        # output: dist/Backdrop_<version>_x64-setup.exe
 ```
 
-The Mac app has to be built on a Mac (it needs Apple's SDK). On the Mac, from the repo root:
+### macOS
 
-```
-scripts/build-mac.sh                # installs Rust and the Tauri CLI the first time; dist/Backdrop.app
-```
+The macOS app must be built on a Mac with the Xcode command line tools installed. From the repository root:
 
-On either machine, `cd app/src-tauri && cargo tauri dev` runs it from source.
-
-The server (on the Linux box that hosts the library):
-
-```
-./install.sh             # build, install to /opt/backdrop, (re)start backdrop.service on 127.0.0.1:8092
-./install.sh --publish   # also put everything in dist/ on the server's download list
+```sh
+scripts/build-mac.sh            # installs Rust and the Tauri CLI on first run; output: dist/Backdrop.app and .dmg
 ```
 
-Tests: `cargo test --workspace`.
+### Development
 
-## Known limits
+```sh
+cd app/src-tauri && cargo tauri dev
+```
 
-- Windows WebView2 can't play HEVC/H.265 or ProRes; use H.264, VP9 or AV1 there. macOS plays all of them.
-- On Windows with displays at different scaling, the player on a secondary display renders at the main
-  display's scale. Video still fills the screen, possibly a touch softer.
-- HTML wallpapers can't be paused from outside. The player posts `{ backdrop: { paused } }` to the page,
-  and a page that listens for it can stop its own animation loop.
-- Unsigned builds: Windows SmartScreen will warn the first time ("More info" > "Run anyway").
+On Linux the app runs in a plain window (`platform/other.rs`) for development only.
+
+### Server
+
+On the Linux host:
+
+```sh
+./install.sh              # build, install to /opt/backdrop, and (re)start backdrop.service
+./install.sh --publish    # also publish everything in dist/ to the server's download list
+```
+
+### Tests
+
+```sh
+cargo test --workspace
+```
+
+## Known limitations
+
+- WebView2 on Windows cannot decode HEVC/H.265 or ProRes. Use H.264, VP9 or AV1 on Windows; macOS supports
+  all of these.
+- On Windows with mixed display scaling, the player on a secondary display renders at the primary display's
+  scale. Video still fills the screen but may appear slightly softer.
+- HTML wallpapers cannot be paused externally. The player posts `{ backdrop: { paused, muted, volume } }`
+  to the page; pages that listen for this message can stop their own animation loop.
+
+## License
+
+[MIT](LICENSE)
