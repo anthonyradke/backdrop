@@ -13,16 +13,17 @@
   </div>
   <nav class="nav-tabs" id="tabs"></nav>
   <div class="tb-spacer" data-tauri-drag-region></div>
-  <button class="tb-live" id="live" data-act="togglePause" title="Pause or resume every wallpaper"></button>
+  <button class="tb-live" id="live" data-act="togglePause" data-t-title="Pause or resume every wallpaper" title="Pause or resume every wallpaper"></button>
   <div class="win-ctl" id="winctl">
-    <button data-win="min" title="Minimize"><svg viewBox="0 0 16 16"><path d="M3.5 8h9"/></svg></button>
-    <button data-win="max" title="Maximize"><svg viewBox="0 0 16 16"><rect x="3.5" y="3.5" width="9" height="9" rx="1"/></svg></button>
-    <button data-win="close" class="close" title="Close (Backdrop keeps running in the tray)"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+    <button data-win="min" data-t-title="Minimize" title="Minimize"><svg viewBox="0 0 16 16"><path d="M3.5 8h9"/></svg></button>
+    <button data-win="max" data-t-title="Maximize" title="Maximize"><svg viewBox="0 0 16 16"><rect x="3.5" y="3.5" width="9" height="9" rx="1"/></svg></button>
+    <button data-win="close" class="close" data-t-title="Close (Backdrop keeps running in the tray)" title="Close (Backdrop keeps running in the tray)"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
   </div>
 </header>
 <main id="page"></main>
-<div id="drop"><div>Drop to add to your library</div></div>
+<div id="drop"><div data-t="Drop to add to your library">Drop to add to your library</div></div>
 <div id="toast"></div>
+<script src="i18n.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

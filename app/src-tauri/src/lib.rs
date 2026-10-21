@@ -6,6 +6,7 @@ mod loopback;
 mod media;
 mod platform;
 mod remote;
+mod rotation;
 
 use config::Config;
 use engine::{DisplayView, PlayerParams};
@@ -16,7 +17,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, Wry};
@@ -68,8 +69,62 @@ pub struct Core {
     pub transfers: Mutex<HashSet<String>>,
     /// Base URL of the loopback server the player falls back to for video.
     pub loopback: Option<String>,
+    /// When the wallpaper last rotated (or the interval was changed).
+    pub rotated_at: Mutex<Instant>,
     engine: Mutex<Option<mpsc::Sender<()>>>,
-    tray_pause: Mutex<Option<CheckMenuItem<Wry>>>,
+    tray: Mutex<Option<TrayItems>>,
+}
+
+struct TrayItems {
+    open: MenuItem<Wry>,
+    pause: CheckMenuItem<Wry>,
+    next: MenuItem<Wry>,
+    quit: MenuItem<Wry>,
+}
+
+/// The UI language: the one chosen in Settings, else the system's when we have it, else English.
+pub fn ui_language(chosen: &str) -> &'static str {
+    let pick = |code: &str| -> Option<&'static str> {
+        let code = code.to_ascii_lowercase();
+        if code.starts_with("es") {
+            Some("es")
+        } else if code.starts_with("de") {
+            Some("de")
+        } else if code.starts_with("zh") {
+            Some("zh-Hans")
+        } else if code.starts_with("en") {
+            Some("en")
+        } else {
+            None
+        }
+    };
+    if !chosen.is_empty() {
+        return pick(chosen).unwrap_or("en");
+    }
+    sys_locale::get_locales().find_map(|l| pick(&l)).unwrap_or("en")
+}
+
+/// Tray menu text: open, pause, next, quit.
+fn tray_text(lang: &str) -> [&'static str; 4] {
+    match lang {
+        "es" => ["Abrir Backdrop", "Pausar fondos", "Siguiente fondo", "Salir de Backdrop"],
+        "de" => ["Backdrop öffnen", "Hintergründe pausieren", "Nächstes Hintergrundbild", "Backdrop beenden"],
+        "zh-Hans" => ["打开 Backdrop", "暂停壁纸", "下一张壁纸", "退出 Backdrop"],
+        _ => ["Open Backdrop", "Pause wallpapers", "Next wallpaper", "Quit Backdrop"],
+    }
+}
+
+/// Relabels the tray menu after the language changes.
+pub fn translate_tray(app: &AppHandle) {
+    let core = app.state::<Core>();
+    let lang = ui_language(&core.config.lock().unwrap().language);
+    let [open, pause, next, quit] = tray_text(lang);
+    if let Some(t) = core.tray.lock().unwrap().as_ref() {
+        let _ = t.open.set_text(open);
+        let _ = t.pause.set_text(pause);
+        let _ = t.next.set_text(next);
+        let _ = t.quit.set_text(quit);
+    };
 }
 
 #[derive(Serialize, Clone)]
@@ -85,6 +140,8 @@ pub struct StateView {
     version: &'static str,
     transfers: Vec<String>,
     loopback: Option<String>,
+    /// The language the UI should use (see `ui_language`).
+    lang: &'static str,
 }
 
 impl Core {
@@ -116,8 +173,8 @@ impl Core {
 
     pub fn set_paused(&self, paused: bool) {
         self.manual_pause.store(paused, Ordering::Relaxed);
-        if let Some(item) = self.tray_pause.lock().unwrap().as_ref() {
-            let _ = item.set_checked(paused);
+        if let Some(t) = self.tray.lock().unwrap().as_ref() {
+            let _ = t.pause.set_checked(paused);
         }
         self.poke();
         self.emit_state();
@@ -128,8 +185,10 @@ impl Core {
             let lib = self.library.lock().unwrap();
             (lib.views(), lib.root.to_string_lossy().to_string())
         };
+        let config = self.config.lock().unwrap().clone();
         StateView {
-            config: self.config.lock().unwrap().clone(),
+            lang: ui_language(&config.language),
+            config,
             displays: self.displays.lock().unwrap().clone(),
             items,
             paused: self.manual_pause.load(Ordering::Relaxed),
@@ -184,11 +243,14 @@ pub fn show_main(app: &AppHandle) {
 }
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "open", "Open Backdrop", true, None::<&str>)?;
-    let pause = CheckMenuItem::with_id(app, "pause", "Pause wallpapers", true, false, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Backdrop", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &pause, &PredefinedMenuItem::separator(app)?, &quit])?;
-    *app.state::<Core>().tray_pause.lock().unwrap() = Some(pause);
+    let lang = ui_language(&app.state::<Core>().config.lock().unwrap().language);
+    let [t_open, t_pause, t_next, t_quit] = tray_text(lang);
+    let open = MenuItem::with_id(app, "open", t_open, true, None::<&str>)?;
+    let pause = CheckMenuItem::with_id(app, "pause", t_pause, true, false, None::<&str>)?;
+    let next = MenuItem::with_id(app, "next", t_next, true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", t_quit, true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open, &pause, &next, &PredefinedMenuItem::separator(app)?, &quit])?;
+    *app.state::<Core>().tray.lock().unwrap() = Some(TrayItems { open, pause, next, quit });
 
     #[cfg(target_os = "macos")]
     let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-template.png"))?;
@@ -206,6 +268,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                 let now = !core.manual_pause.load(Ordering::Relaxed);
                 core.set_paused(now);
             }
+            "next" => rotation::trigger(app, rotation::Why::Manual),
             "quit" => app.exit(0),
             _ => {}
         })
@@ -265,8 +328,9 @@ pub fn run() {
                 players: Mutex::new(HashMap::new()),
                 transfers: Mutex::new(HashSet::new()),
                 loopback,
+                rotated_at: Mutex::new(Instant::now()),
                 engine: Mutex::new(None),
-                tray_pause: Mutex::new(None),
+                tray: Mutex::new(None),
             });
 
             #[cfg(target_os = "macos")]
@@ -275,6 +339,10 @@ pub fn run() {
             build_tray(&handle)?;
             let tx = engine::spawn(handle.clone());
             *app.state::<Core>().engine.lock().unwrap() = Some(tx);
+            rotation::spawn(handle.clone());
+            if app.state::<Core>().config.lock().unwrap().rotation.on_start {
+                rotation::trigger(&handle, rotation::Why::Start);
+            }
 
             if !std::env::args().any(|a| a == "--hidden") {
                 show_main(&handle);
@@ -312,6 +380,13 @@ pub fn run() {
             commands::open_library_dir,
             commands::player_init,
             commands::player_log,
+            commands::set_in_rotation,
+            commands::next_wallpaper,
+            commands::save_frame,
+            commands::convert_remote,
+            commands::remote_jobs,
+            commands::free_space,
+            commands::reset_settings,
         ])
         .build(tauri::generate_context!())
         .expect("error while building backdrop")

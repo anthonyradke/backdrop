@@ -52,7 +52,7 @@ async function load() {
     <div class="card" data-id="${i.id}">
       <img src="/api/items/${i.id}/thumb" loading="lazy" onerror="this.outerHTML='<div class=ph>${i.kind}</div>'">
       <div class="row"><span class="name" title="${esc(i.name)}">${esc(i.name)}</span>
-        <span class="dim">${i.kind} · ${fmtSize(i.size)}</span></div>
+        <span class="dim">${[i.kind, i.height ? Math.min(i.width, i.height) + 'p' : '', i.codec || '', fmtSize(i.size)].filter(Boolean).join(' · ')}</span></div>
       <div class="row"><span>
         <a href="/api/items/${i.id}/file" download>download</a></span>
         <span><button data-act="rename">rename</button> · <button data-act="delete">delete</button></span></div>

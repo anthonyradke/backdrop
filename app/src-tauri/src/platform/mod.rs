@@ -4,7 +4,8 @@
 //! - `keep_attached`: cheap check, run every second, that repairs the attachment if the OS undid it
 //! - `set_image`: set a still image as the OS wallpaper for one display (no window at all)
 //! - `covered`: which displays' players can't currently be seen (fullscreen or maximized apps)
-//! - `on_battery`, `cleanup`
+//! - `focused`: displays where another app's window is in front
+//! - `on_battery`, `low_power`, `locked`, `cleanup`
 
 #[cfg(target_os = "macos")]
 mod macos;

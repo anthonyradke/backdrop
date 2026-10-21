@@ -20,12 +20,22 @@ The Windows build is about 5 MB installed, from a 2 MB installer.
 - Video (MP4, WebM, MOV), animated GIF and HTML/canvas/WebGL wallpapers rendered behind the desktop icons
 - Still images (JPG, PNG, WebP and others) set through the native wallpaper API
 - A separate wallpaper per display, or one across all displays
-- Fill, fit and stretch scaling, with optional audio and volume control
-- Automatic pause when a maximized or fullscreen window covers the wallpaper, or when running on battery
+- Fill, fit, fit-height, stretch and center scaling; playback speed from 0.5× to 2×; optional audio
+- A full-resolution frame of each moving wallpaper is set as the system wallpaper, so the lock screen,
+  Mission Control and the desktop before startup match it
+- Rotation on a timer (in order or shuffled, the same or different on each display), plus a random pick at
+  startup or after waking from sleep, and a *Next wallpaper* item in the tray menu
+- Automatic pause when a window covers the wallpaper, when another app is in front, on battery, in Low
+  Power Mode or battery saver, and while the screen is locked
+- Resolution badges (4K, 1440p, 1080p) and codec details for each item; Windows flags HEVC and ProRes
+  files it can't play
 - Drag-and-drop import; HTML wallpapers can be a folder with an `index.html`, a `.zip` of one, or a single
   `.html` file
 - Optional library server: upload from one computer, download on another, or manage the library from any
   browser, including a phone
+- Server-side conversion to H.264, optionally at a lower resolution or frame rate, for a copy that plays
+  everywhere and uses less power
+- Free-up-space and reset options; interface in English, Spanish, German and Simplified Chinese
 - Runs from the system tray (menu bar on macOS) with the main window closed, and can start at login
 
 ## Requirements
@@ -34,7 +44,7 @@ The Windows build is about 5 MB installed, from a 2 MB installer.
 |---|---|
 | macOS app | macOS 12 or later |
 | Windows app | Windows 10 or 11 with WebView2 (preinstalled on Windows 11) |
-| Library server | Linux with `ffmpeg` on the `PATH` for thumbnails |
+| Library server | Linux with `ffmpeg` and `ffprobe` (with libx264 and zscale) on the `PATH` |
 
 ## Installation
 
@@ -56,8 +66,10 @@ crates/
   server/      library server and its browser interface (src/index.html)
 app/
   src-tauri/   desktop app (Rust)
-  ui/          library window and player page; plain HTML, CSS and JavaScript with no build step
+  ui/          library window and player page; plain HTML, CSS and JavaScript with no build step;
+               translations in i18n.js
 deploy/        systemd unit for the server
+packaging/     Homebrew cask
 scripts/       build scripts for macOS and Windows
 ```
 
@@ -88,6 +100,12 @@ protocol with HTTP range support. If a WebView cannot play video through that pr
 back to a loopback HTTP server bound to `127.0.0.1` on a random port, with a per-session secret token in
 the request path.
 
+#### Rotation (`rotation.rs`)
+
+A background task checks the interval every 20 seconds. Picks come from the items marked for rotation, or
+from the whole local library when none are marked; items that exist only on the server are downloaded when
+their turn comes. The engine treats a gap of more than 30 seconds between ticks as a wake from sleep.
+
 #### Item identity
 
 Each item is identified by the first 16 hex characters of its SHA-256 hash. The same
@@ -99,7 +117,12 @@ downloads it first.
 
 The server is a single Rust binary with no database. Each item is stored as `items/<id>/` containing
 `meta.json`, the media file, and a `thumb.jpg` generated with ffmpeg (HTML wallpapers have no thumbnail).
-The item list is rebuilt from the metadata files at startup.
+The item list is rebuilt from the metadata files at startup, and ffprobe records each video's codec,
+resolution and frame rate.
+
+Conversions run one at a time with libx264. The short side is scaled down to `maxHeight` and the frame rate
+lowered to `maxFps` only when the source exceeds them, and HDR footage is tone-mapped to SDR. The result is
+stored as a new item next to the original.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -110,6 +133,8 @@ The item list is rebuilt from the metadata files at startup.
 | `GET` `PATCH` `DELETE` | `/api/items/{id}` | Read, rename or delete an item |
 | `GET` | `/api/items/{id}/file` | Download the media file |
 | `GET` `PUT` | `/api/items/{id}/thumb` | Read or replace the thumbnail |
+| `POST` | `/api/items/{id}/convert` | Start an H.264 copy; body `{ "maxHeight": 1080, "maxFps": 30 }`, both optional |
+| `GET` | `/api/jobs` | Conversion progress |
 | `GET` | `/downloads`, `/downloads/{name}` | App installers published by the server |
 
 Configuration is through environment variables:
@@ -172,12 +197,15 @@ cargo test --workspace
 
 ## Known limitations
 
-- WebView2 on Windows cannot decode HEVC/H.265 or ProRes. Use H.264, VP9 or AV1 on Windows; macOS supports
-  all of these.
+- WebView2 on Windows cannot decode HEVC/H.265 or ProRes. Use H.264, VP9 or AV1 on Windows, or convert the
+  file on the server; macOS supports all of these.
+- The still frame covers the desktop wallpaper. On Windows the lock screen keeps its own image.
 - On Windows with mixed display scaling, the player on a secondary display renders at the primary display's
   scale. Video still fills the screen but may appear slightly softer.
-- HTML wallpapers cannot be paused externally. The player posts `{ backdrop: { paused, muted, volume } }`
+- HTML wallpapers cannot be paused externally. The player posts `{ backdrop: { paused, muted, volume, speed } }`
   to the page; pages that listen for this message can stop their own animation loop.
+- Codec detection for files added locally reads MP4 and MOV headers only; other formats get their codec once
+  they are on the server.
 
 ## License
 

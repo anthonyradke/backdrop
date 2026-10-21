@@ -132,12 +132,15 @@ pub fn import(root: &Path, src: &Path, existing: &HashMap<String, Item>) -> io::
                 other(format!("{file_name}: {e}"))
             })?;
         }
+        let stored = dir.join(&file);
         let item = Item {
             id: id.clone(),
             name: if src.is_dir() { file_name.clone() } else { common::name_from_file(&file_name) },
             kind,
+            size: std::fs::metadata(&stored)?.len(),
+            codec: if kind == Kind::Video { common::mp4_codec(&stored) } else { None },
+            fps: None,
             file,
-            size: std::fs::metadata(dir.join(common::stored_name(kind, &ext)))?.len(),
             width: None,
             height: None,
             added: common::now(),

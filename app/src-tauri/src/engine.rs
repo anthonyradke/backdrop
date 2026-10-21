@@ -43,6 +43,8 @@ pub struct DisplayView {
     pub display: Display,
     pub item: Option<String>,
     pub status: Status,
+    /// Why it's paused: manual, locked, battery, lowPower, covered or focused.
+    pub reason: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -54,7 +56,12 @@ pub struct PlayerParams {
     pub fit: Fit,
     pub muted: bool,
     pub volume: f64,
+    pub speed: f64,
     pub paused: bool,
+    /// Where to darken a strip for the menu bar or taskbar: `top`, `bottom`, or none.
+    pub shade: Option<&'static str>,
+    /// Item id to capture a full-size still frame of (for the system wallpaper), when it has none yet.
+    pub capture: Option<String>,
     /// Loopback server base URL, tried when a video fails over media://.
     pub fallback: Option<String>,
 }
@@ -72,7 +79,10 @@ struct Engine {
     native: HashMap<String, (String, Fit)>,
     covered: HashSet<String>,
     on_battery: bool,
+    low_power: bool,
     battery_checked: Option<Instant>,
+    /// Wall-clock time of the last tick. A big gap means the computer was asleep.
+    last_tick: std::time::SystemTime,
     /// Display key -> when creating its window last failed (retried after a pause).
     failed: HashMap<String, Instant>,
 }
@@ -88,7 +98,9 @@ pub fn spawn(app: AppHandle) -> mpsc::Sender<()> {
                 native: HashMap::new(),
                 covered: HashSet::new(),
                 on_battery: false,
+                low_power: false,
                 battery_checked: None,
+                last_tick: std::time::SystemTime::now(),
                 failed: HashMap::new(),
             };
             loop {
@@ -108,6 +120,25 @@ pub fn spawn(app: AppHandle) -> mpsc::Sender<()> {
 pub fn uses_native(item: &Item) -> bool {
     platform::NATIVE_IMAGES && item.kind == Kind::Image && !item.file.ends_with(".gif")
 }
+
+/// The OS wallpaper APIs have no "fit height": it's Fill when the picture is wider than the screen
+/// (the sides get cropped) and Fit when it's narrower (bars at the sides).
+pub fn native_fit(fit: Fit, size: (Option<u32>, Option<u32>), d: &Display) -> Fit {
+    match (fit, size) {
+        (Fit::Height, (Some(w), Some(h))) if h > 0 && d.height > 0 => {
+            if w as f64 / h as f64 >= d.width as f64 / d.height as f64 {
+                Fit::Cover
+            } else {
+                Fit::Contain
+            }
+        }
+        (Fit::Height, _) => Fit::Cover,
+        (f, _) => f,
+    }
+}
+
+/// The full-size frame of a moving wallpaper that stands in as the system wallpaper.
+pub const FRAME: &str = "frame.jpg";
 
 pub fn label_for(key: &str) -> String {
     // FNV-1a: labels may only hold a few characters, and display names hold anything.
@@ -201,11 +232,26 @@ impl Engine {
             )
         };
 
-        if self.battery_checked.is_none_or(|t| t.elapsed() > Duration::from_secs(15)) {
+        let now = std::time::SystemTime::now();
+        let slept = now.duration_since(self.last_tick).is_ok_and(|d| d > Duration::from_secs(30));
+        self.last_tick = now;
+        if slept {
+            log("woke from sleep");
+            if cfg.rotation.on_wake {
+                crate::rotation::trigger(&self.app, crate::rotation::Why::Wake);
+            }
+        }
+
+        if slept || self.battery_checked.is_none_or(|t| t.elapsed() > Duration::from_secs(15)) {
             self.on_battery = platform::on_battery();
+            self.low_power = platform::low_power();
             self.battery_checked = Some(Instant::now());
         }
         let manual = core.manual_pause.load(Ordering::Relaxed);
+        let locked = cfg.pause_locked && platform::locked();
+        let focused =
+            if cfg.pause_focused && !self.slots.is_empty() { platform::focused(&self.app, &displays) } else { HashSet::new() };
+        let shade = cfg.shade_bar.then_some(if cfg!(windows) { "bottom" } else { "top" });
 
         let mut views = Vec::with_capacity(displays.len());
         let mut wanted: HashSet<String> = HashSet::new();
@@ -213,13 +259,23 @@ impl Engine {
         for d in &displays {
             let assigned = cfg.assignments.get(&d.key).cloned();
             let mut status = Status::Idle;
+            let mut reason = None;
             if let Some(item) = assigned.as_ref().and_then(|id| items.get(id)) {
-                if uses_native(item) {
+                // Still images are the wallpaper; moving ones can leave a frame of themselves as it.
+                let frame = root.join(&item.id).join(FRAME);
+                let native_src = if uses_native(item) {
+                    Some((item.id.clone(), root.join(&item.id).join(&item.file)))
+                } else if platform::NATIVE_IMAGES && cfg.still_frame && item.kind != Kind::Web && frame.is_file() {
+                    Some((format!("{}#frame", item.id), frame.clone()))
+                } else {
+                    None
+                };
+                if let Some((native_id, path)) = native_src {
                     native_now.insert(d.key.clone());
-                    let want = (item.id.clone(), cfg.fit);
+                    let fit = native_fit(cfg.fit, (item.width, item.height), d);
+                    let want = (native_id, fit);
                     if self.native.get(&d.key) != Some(&want) {
-                        let path = root.join(&item.id).join(&item.file);
-                        match platform::set_image(&self.app, d, &path, cfg.fit) {
+                        match platform::set_image(&self.app, d, &path, fit) {
                             Ok(()) => {
                                 self.native.insert(d.key.clone(), want);
                             }
@@ -230,27 +286,44 @@ impl Engine {
                             }
                         }
                     }
+                }
+                if uses_native(item) {
                     status = Status::Image;
                 } else {
-                    let paused = manual
-                        || (cfg.pause_battery && self.on_battery)
-                        || (cfg.pause_covered && self.covered.contains(&d.key));
+                    reason = [
+                        (manual, "manual"),
+                        (locked, "locked"),
+                        (cfg.pause_battery && self.on_battery, "battery"),
+                        (cfg.pause_low_power && self.low_power, "lowPower"),
+                        (cfg.pause_covered && self.covered.contains(&d.key), "covered"),
+                        (focused.contains(&d.key), "focused"),
+                    ]
+                    .into_iter()
+                    .find(|(on, _)| *on)
+                    .map(|(_, why)| why);
+                    let paused = reason.is_some();
+                    let wants_frame = platform::NATIVE_IMAGES && cfg.still_frame && item.kind != Kind::Web;
                     let params = PlayerParams {
                         kind: item.kind,
                         src: crate::library::Library::player_src(item),
                         fit: cfg.fit,
                         muted: cfg.muted,
                         volume: cfg.volume.clamp(0.0, 1.0),
+                        speed: cfg.speed.clamp(0.25, 2.0),
                         paused,
+                        shade,
+                        capture: (wants_frame && !frame.is_file()).then(|| item.id.clone()),
                         fallback: core.loopback.clone(),
                     };
                     if self.ensure_player(&core, d, params) {
                         wanted.insert(d.key.clone());
                         status = if paused { Status::Paused } else { Status::Playing };
+                    } else {
+                        reason = None;
                     }
                 }
             }
-            views.push(DisplayView { display: d.clone(), item: assigned, status });
+            views.push(DisplayView { display: d.clone(), item: assigned, status, reason });
         }
         self.native.retain(|k, _| native_now.contains(k));
 
@@ -358,6 +431,15 @@ mod tests {
         assert_eq!(l, label_for(r"\\.\DISPLAY1"));
         assert_ne!(l, label_for(r"\\.\DISPLAY2"));
         assert!(l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
+    }
+
+    #[test]
+    fn height_fit() {
+        let d = Display { key: "a".into(), name: "a".into(), x: 0, y: 0, width: 1920, height: 1080, scale: 1.0, primary: true };
+        assert_eq!(native_fit(Fit::Height, (Some(3000), Some(1000)), &d), Fit::Cover);
+        assert_eq!(native_fit(Fit::Height, (Some(1000), Some(1000)), &d), Fit::Contain);
+        assert_eq!(native_fit(Fit::Height, (None, None), &d), Fit::Cover);
+        assert_eq!(native_fit(Fit::Center, (None, None), &d), Fit::Center);
     }
 
     #[test]

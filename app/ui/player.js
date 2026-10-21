@@ -4,7 +4,7 @@ const { invoke, convertFileSrc } = window.__TAURI__.core;
 const me = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 
 const BASE = convertFileSrc("", "media"); // media://localhost/ (macOS) or http://media.localhost/ (Windows)
-const FIT = { cover: "cover", contain: "contain", stretch: "fill" };
+const FIT = { cover: "cover", contain: "contain", stretch: "fill", center: "none" };
 let cur = null;
 const report = (msg) => invoke("player_log", { msg: String(msg) }).catch(() => {});
 window.addEventListener("error", (e) => report(`script error: ${e.message}`));
@@ -26,6 +26,7 @@ function swap(p) {
     next.preload = "auto";
     next.disablePictureInPicture = true;
     next.addEventListener("loadeddata", reveal, { once: true });
+    next.addEventListener("loadedmetadata", () => { if (cur && el === next) applyFit(cur); });
     let usedFallback = false;
     next.addEventListener("error", () => {
       const why = next.error?.message || next.error?.code;
@@ -33,6 +34,7 @@ function swap(p) {
         // Some WebViews can't stream video from a custom protocol; the loopback server always works.
         usedFallback = true;
         report(`media:// couldn't play ${p.src} (${why}); switching to loopback`);
+        next.dataset.base = p.fallback;
         next.src = url(p.src, p.fallback);
         if (cur && !cur.paused) next.play().catch(() => {});
         return;
@@ -48,7 +50,7 @@ function swap(p) {
   } else {
     next = document.createElement("img");
     next.src = url(p.src);
-    next.decode().then(reveal, reveal);
+    next.decode().then(() => { if (cur && el === next) applyFit(cur); reveal(); }, reveal);
   }
   next.className = "layer";
   document.body.appendChild(next);
@@ -71,19 +73,84 @@ function dispose(node) {
   node.remove();
 }
 
+// "Fit height" is Fill for media wider than the screen and Fit for narrower media.
+function applyFit(p) {
+  if (el.tagName !== "VIDEO" && el.tagName !== "IMG") return;
+  let fit = FIT[p.fit] || "cover";
+  if (p.fit === "height") {
+    const w = el.videoWidth || el.naturalWidth, h = el.videoHeight || el.naturalHeight;
+    fit = w && h && w / h < innerWidth / innerHeight ? "contain" : "cover";
+  }
+  el.style.objectFit = fit;
+}
+
+// A full-size frame of the wallpaper becomes the system wallpaper underneath, so the lock screen
+// and Mission Control match. A separate element does the grab so the visible one is never
+// switched to CORS mode.
+const captured = new Set();
+function capture(p) {
+  const id = p.capture;
+  if (!id || captured.has(id)) return;
+  captured.add(id);
+  // Waits a moment so the visible player has settled on media:// or the loopback fallback.
+  setTimeout(() => {
+    const base = el.dataset.base || BASE;
+    grab(url(p.src, base), p.kind)
+      .catch((e) => (p.fallback && base !== p.fallback ? grab(url(p.src, p.fallback), p.kind) : Promise.reject(e)))
+      .then((data) => invoke("save_frame", { id, data }))
+      .catch((e) => report(`no still frame for ${p.src}: ${e}`));
+  }, 2500);
+}
+
+function grab(src, kind) {
+  return new Promise((resolve, reject) => {
+    let g;
+    const timer = setTimeout(() => { done(); reject("timeout"); }, 20000);
+    const done = () => { clearTimeout(timer); if (g?.tagName === "VIDEO") { g.removeAttribute("src"); g.load(); } };
+    const draw = (w, h) => {
+      // Big enough for a 4K screen, small enough to stay a few MB.
+      const k = Math.min(1, 3840 / Math.max(w, h));
+      const c = document.createElement("canvas");
+      c.width = Math.round(w * k);
+      c.height = Math.round(h * k);
+      c.getContext("2d").drawImage(g, 0, 0, c.width, c.height);
+      done();
+      try { resolve(c.toDataURL("image/jpeg", 0.9)); } catch (e) { reject(e); }
+    };
+    if (kind === "video") {
+      g = document.createElement("video");
+      g.crossOrigin = "anonymous";
+      g.muted = true;
+      g.preload = "auto";
+      g.onloadedmetadata = () => { g.currentTime = Math.min(1, (g.duration || 2) / 2); };
+      g.onseeked = () => draw(g.videoWidth, g.videoHeight);
+      g.onerror = () => { done(); reject("can't decode"); };
+    } else {
+      g = new Image();
+      g.crossOrigin = "anonymous";
+      g.onload = () => draw(g.naturalWidth, g.naturalHeight);
+      g.onerror = () => { done(); reject("can't decode"); };
+    }
+    g.src = src;
+  });
+}
+
 function show(p) {
   if (!p) return;
   if (!cur || cur.src !== p.src || cur.kind !== p.kind) swap(p);
   cur = p;
-  if (el.tagName === "VIDEO" || el.tagName === "IMG") el.style.objectFit = FIT[p.fit] || "cover";
+  document.getElementById("shade").className = p.shade || "";
+  applyFit(p);
+  capture(p);
   if (el.tagName === "VIDEO") {
     el.muted = p.muted;
     el.volume = p.volume;
+    el.defaultPlaybackRate = el.playbackRate = p.speed || 1;
     if (p.paused) el.pause();
     else el.play().catch(() => { el.muted = true; el.play().catch((e) => report(`play() refused: ${e}`)); });
   } else if (el.tagName === "IFRAME") {
     // HTML wallpapers can listen for this to stop their animation loop.
-    try { el.contentWindow.postMessage({ backdrop: { paused: p.paused, muted: p.muted, volume: p.volume } }, "*"); } catch {}
+    try { el.contentWindow.postMessage({ backdrop: { paused: p.paused, muted: p.muted, volume: p.volume, speed: p.speed } }, "*"); } catch {}
   }
 }
 

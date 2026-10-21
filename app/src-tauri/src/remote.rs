@@ -1,4 +1,4 @@
-//! Client for the shared library server on x1.
+//! Client for the shared library server.
 
 use backdrop_common::{Item, Listed};
 use futures_util::StreamExt;
@@ -153,4 +153,26 @@ pub async fn download_thumb(server: &str, id: &str, dest: &Path) -> Result<bool,
     let bytes = check(res).await?.bytes().await.map_err(msg)?;
     tokio::fs::write(dest, &bytes).await.map_err(|e| e.to_string())?;
     Ok(true)
+}
+
+/// Asks the server to make an H.264 copy (optionally smaller or at a lower frame rate). Returns the job.
+pub async fn convert(
+    server: &str,
+    id: &str,
+    max_height: Option<u32>,
+    max_fps: Option<u32>,
+) -> Result<serde_json::Value, String> {
+    let res = client()
+        .post(format!("{server}/api/items/{id}/convert"))
+        .json(&serde_json::json!({ "maxHeight": max_height, "maxFps": max_fps }))
+        .timeout(Duration::from_secs(20))
+        .send()
+        .await
+        .map_err(msg)?;
+    check(res).await?.json().await.map_err(msg)
+}
+
+pub async fn jobs(server: &str) -> Result<serde_json::Value, String> {
+    let res = client().get(format!("{server}/api/jobs")).timeout(Duration::from_secs(10)).send().await.map_err(msg)?;
+    check(res).await?.json().await.map_err(msg)
 }

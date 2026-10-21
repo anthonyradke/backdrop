@@ -29,6 +29,18 @@ pub fn on_battery() -> bool {
     false
 }
 
+pub fn low_power() -> bool {
+    false
+}
+
+pub fn locked() -> bool {
+    false
+}
+
+pub fn focused(_app: &AppHandle, _displays: &[Display]) -> HashSet<String> {
+    HashSet::new()
+}
+
 pub fn cleanup(_app: &AppHandle) {}
 
 pub fn after_close(_app: &AppHandle) {}

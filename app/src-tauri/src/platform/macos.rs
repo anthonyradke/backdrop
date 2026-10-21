@@ -19,6 +19,8 @@ pub const NATIVE_IMAGES: bool = true;
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
     fn CGWindowLevelForKey(key: i32) -> i32;
+    fn CGSessionCopyCurrentDictionary() -> *const c_void;
+    fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> *const c_void;
 }
 
 #[link(name = "IOKit", kind = "framework")]
@@ -114,11 +116,13 @@ pub fn set_image(app: &AppHandle, d: &Display, path: &Path, fit: Fit) -> Result<
     on_main(app, move || unsafe {
         let (screen, _) = screen_for(&d).ok_or("no matching screen")?;
         let url = NSURL::fileURLWithPath(&NSString::from_str(&path));
-        // NSImageScaling: 1 = axes independently (stretch), 3 = proportionally up or down.
+        // NSImageScaling: 1 = axes independently (stretch), 2 = none, 3 = proportionally up or down.
+        // The engine turns Height into Cover or Contain before it gets here.
         let (scaling, clip) = match fit {
-            Fit::Cover => (3, true),
+            Fit::Cover | Fit::Height => (3, true),
             Fit::Contain => (3, false),
             Fit::Stretch => (1, false),
+            Fit::Center => (2, false),
         };
         let keys = [
             objc2_app_kit::NSWorkspaceDesktopImageScalingKey,
@@ -168,6 +172,102 @@ pub fn on_battery() -> bool {
         CFRelease(info);
         battery
     }
+}
+
+pub fn low_power() -> bool {
+    unsafe {
+        let pi: *mut AnyObject = msg_send![class!(NSProcessInfo), processInfo];
+        let sel = objc2::sel!(isLowPowerModeEnabled);
+        let has: bool = msg_send![pi, respondsToSelector: sel];
+        if !has {
+            return false;
+        }
+        let on: bool = msg_send![pi, isLowPowerModeEnabled];
+        on
+    }
+}
+
+unsafe fn number(dict: *mut AnyObject, key: &str) -> Option<f64> {
+    let v: *mut AnyObject = msg_send![dict, objectForKey: &*NSString::from_str(key)];
+    if v.is_null() {
+        return None;
+    }
+    Some(msg_send![v, doubleValue])
+}
+
+/// The session dictionary says whether the login window is covering the screen.
+pub fn locked() -> bool {
+    unsafe {
+        let d = CGSessionCopyCurrentDictionary();
+        if d.is_null() {
+            return false;
+        }
+        let locked = number(d as *mut AnyObject, "CGSSessionScreenIsLocked").is_some_and(|v| v != 0.0);
+        CFRelease(d);
+        locked
+    }
+}
+
+/// The display holding the frontmost app's front window, unless that app is Finder (the desktop)
+/// or Backdrop.
+pub fn focused(app: &AppHandle, displays: &[Display]) -> HashSet<String> {
+    let displays = displays.to_vec();
+    on_main(app, move || unsafe {
+        let ws: *mut AnyObject = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let front: *mut AnyObject = msg_send![ws, frontmostApplication];
+        if front.is_null() {
+            return HashSet::new();
+        }
+        let pid: i32 = msg_send![front, processIdentifier];
+        let bundle: *mut AnyObject = msg_send![front, bundleIdentifier];
+        let finder = !bundle.is_null() && {
+            let b = &*(bundle as *const NSString);
+            b.to_string() == "com.apple.finder"
+        };
+        if finder || pid as u32 == std::process::id() {
+            return HashSet::new();
+        }
+        // On-screen windows, front to back, without the desktop's own.
+        let list = CGWindowListCopyWindowInfo(1 | 1 << 4, 0);
+        if list.is_null() {
+            return HashSet::new();
+        }
+        let arr = list as *mut AnyObject;
+        let n: usize = msg_send![arr, count];
+        let mut center = None;
+        for i in 0..n {
+            let w: *mut AnyObject = msg_send![arr, objectAtIndex: i];
+            if number(w, "kCGWindowOwnerPID") != Some(pid as f64) || number(w, "kCGWindowLayer") != Some(0.0) {
+                continue;
+            }
+            let b: *mut AnyObject = msg_send![w, objectForKey: &*NSString::from_str("kCGWindowBounds")];
+            if b.is_null() {
+                continue;
+            }
+            if let (Some(x), Some(y), Some(wd), Some(ht)) =
+                (number(b, "X"), number(b, "Y"), number(b, "Width"), number(b, "Height"))
+            {
+                // Skip slivers like status windows; a real window is bigger than this.
+                if wd > 80.0 && ht > 80.0 {
+                    center = Some((x + wd / 2.0, y + ht / 2.0));
+                    break;
+                }
+            }
+        }
+        CFRelease(list);
+        let Some((cx, cy)) = center else { return HashSet::new() };
+        // Window bounds are points from the main screen's top-left, like monitor position / scale.
+        displays
+            .iter()
+            .filter(|d| {
+                let (x, y) = (d.x as f64 / d.scale, d.y as f64 / d.scale);
+                let (w, h) = (d.width as f64 / d.scale, d.height as f64 / d.scale);
+                cx >= x && cx < x + w && cy >= y && cy < y + h
+            })
+            .map(|d| d.key.clone())
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 pub fn cleanup(_app: &AppHandle) {}

@@ -112,6 +112,16 @@ fn empty(status: StatusCode) -> Response<Vec<u8>> {
 }
 
 pub fn handle(root: &Path, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
+    // CORS preflight for crossOrigin video (the windows draw frames from it).
+    if req.method() == tauri::http::Method::OPTIONS {
+        return Response::builder()
+            .status(StatusCode::NO_CONTENT)
+            .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+            .header(header::ACCESS_CONTROL_ALLOW_METHODS, "GET, HEAD")
+            .header(header::ACCESS_CONTROL_ALLOW_HEADERS, "Range")
+            .body(Vec::new())
+            .unwrap();
+    }
     let Some(path) = resolve(root, req.uri().path()) else {
         return empty(StatusCode::NOT_FOUND);
     };

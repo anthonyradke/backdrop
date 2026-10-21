@@ -1,6 +1,6 @@
 //! Commands the library window and the players call.
 
-use crate::config::{self, Fit};
+use crate::config::{self, Fit, Order};
 use crate::engine::{read_displays, PlayerParams};
 use crate::library;
 use crate::{log, remote, Core, StateView};
@@ -269,8 +269,8 @@ pub async fn upload(app: AppHandle, core: State<'_, Core>, id: String) -> Result
     }
 }
 
-/// Pulls an item from x1 into the local library (no-op if it's already here).
-async fn fetch(app: &AppHandle, core: &Core, id: &str) -> Result<Item, String> {
+/// Pulls an item from the server into the local library (no-op if it's already here).
+pub(crate) async fn fetch(app: &AppHandle, core: &Core, id: &str) -> Result<Item, String> {
     if let Some(item) = core.library.lock().unwrap().items.get(id).cloned() {
         return Ok(item);
     }
@@ -336,7 +336,7 @@ pub async fn download(app: AppHandle, core: State<'_, Core>, id: String) -> Resu
 }
 
 /// Shows a wallpaper on one display, or on all of them when `display` is null. Wallpapers that
-/// only live on x1 are downloaded first.
+/// only live on the server are downloaded first.
 #[tauri::command]
 pub async fn set_wallpaper(
     app: AppHandle,
@@ -380,13 +380,66 @@ pub struct SettingsPatch {
     fit: Option<Fit>,
     muted: Option<bool>,
     volume: Option<f64>,
+    speed: Option<f64>,
+    shade_bar: Option<bool>,
+    still_frame: Option<bool>,
     pause_covered: Option<bool>,
+    pause_focused: Option<bool>,
     pause_battery: Option<bool>,
+    pause_low_power: Option<bool>,
+    pause_locked: Option<bool>,
+    language: Option<String>,
+    rotation_minutes: Option<u32>,
+    rotation_order: Option<Order>,
+    rotation_per_display: Option<bool>,
+    rotation_on_start: Option<bool>,
+    rotation_on_wake: Option<bool>,
 }
 
 #[tauri::command]
-pub fn update_settings(core: State<'_, Core>, patch: SettingsPatch) {
+pub fn update_settings(app: AppHandle, core: State<'_, Core>, patch: SettingsPatch) {
+    if patch.rotation_minutes.is_some() {
+        // A new interval counts from now.
+        *core.rotated_at.lock().unwrap() = Instant::now();
+    }
+    let language = patch.language.clone();
     core.update_config(|c| {
+        if let Some(v) = patch.speed {
+            c.speed = v.clamp(0.25, 2.0);
+        }
+        if let Some(v) = patch.shade_bar {
+            c.shade_bar = v;
+        }
+        if let Some(v) = patch.still_frame {
+            c.still_frame = v;
+        }
+        if let Some(v) = patch.pause_focused {
+            c.pause_focused = v;
+        }
+        if let Some(v) = patch.pause_low_power {
+            c.pause_low_power = v;
+        }
+        if let Some(v) = patch.pause_locked {
+            c.pause_locked = v;
+        }
+        if let Some(v) = patch.language {
+            c.language = v;
+        }
+        if let Some(v) = patch.rotation_minutes {
+            c.rotation.minutes = v;
+        }
+        if let Some(v) = patch.rotation_order {
+            c.rotation.order = v;
+        }
+        if let Some(v) = patch.rotation_per_display {
+            c.rotation.per_display = v;
+        }
+        if let Some(v) = patch.rotation_on_start {
+            c.rotation.on_start = v;
+        }
+        if let Some(v) = patch.rotation_on_wake {
+            c.rotation.on_wake = v;
+        }
         if let Some(v) = patch.fit {
             c.fit = v;
         }
@@ -403,6 +456,111 @@ pub fn update_settings(core: State<'_, Core>, patch: SettingsPatch) {
             c.pause_battery = v;
         }
     });
+    if language.is_some() {
+        crate::translate_tray(&app);
+    }
+}
+
+/// Adds an item to (or takes it off) the rotation list.
+#[tauri::command]
+pub fn set_in_rotation(core: State<'_, Core>, id: String, on: bool) -> Result<(), String> {
+    if !common::valid_id(&id) {
+        return Err("bad id".into());
+    }
+    core.update_config(|c| {
+        c.rotation.pool.retain(|x| *x != id);
+        if on {
+            c.rotation.pool.push(id);
+        }
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn next_wallpaper(app: AppHandle) -> Result<(), String> {
+    crate::rotation::advance(&app, crate::rotation::Why::Manual).await
+}
+
+/// A player sending the full-size frame it captured of a moving wallpaper (JPEG data URL). It
+/// becomes the system wallpaper behind the player.
+#[tauri::command]
+pub fn save_frame(core: State<'_, Core>, id: String, data: String) -> Result<(), String> {
+    if !common::valid_id(&id) {
+        return Err("bad id".into());
+    }
+    let b64 = data.split_once(',').map(|(_, b)| b).unwrap_or(&data);
+    let jpeg = base64::engine::general_purpose::STANDARD.decode(b64).map_err(|e| e.to_string())?;
+    if jpeg.len() < 3 || jpeg[..3] != [0xFF, 0xD8, 0xFF] {
+        return Err("not a JPEG".into());
+    }
+    let dir = core.library.lock().unwrap().dir(&id);
+    if !dir.is_dir() {
+        return Err("not in the library".into());
+    }
+    let tmp = dir.join("frame.jpg.tmp");
+    std::fs::write(&tmp, jpeg).and_then(|_| std::fs::rename(&tmp, dir.join(crate::engine::FRAME))).map_err(|e| e.to_string())?;
+    core.poke();
+    Ok(())
+}
+
+/// Starts an H.264 copy of a server video on the server.
+#[tauri::command]
+pub async fn convert_remote(
+    core: State<'_, Core>,
+    id: String,
+    max_height: Option<u32>,
+    max_fps: Option<u32>,
+) -> Result<serde_json::Value, String> {
+    let server = core.server()?;
+    remote::convert(&server, &id, max_height, max_fps).await
+}
+
+#[tauri::command]
+pub async fn remote_jobs(core: State<'_, Core>) -> Result<serde_json::Value, String> {
+    let server = core.server()?;
+    remote::jobs(&server).await
+}
+
+#[derive(Serialize)]
+pub struct Freed {
+    count: usize,
+    bytes: u64,
+}
+
+/// Removes local copies of wallpapers that are also on the server and aren't showing anywhere.
+/// They download again when picked.
+#[tauri::command]
+pub async fn free_space(core: State<'_, Core>) -> Result<Freed, String> {
+    let server = core.server()?;
+    let remote: std::collections::HashSet<String> = remote::list(&server).await?.into_iter().map(|l| l.item.id).collect();
+    let showing: std::collections::HashSet<String> = core.config.lock().unwrap().assignments.values().cloned().collect();
+    let mut freed = Freed { count: 0, bytes: 0 };
+    {
+        let mut lib = core.library.lock().unwrap();
+        let gone: Vec<(String, u64)> = lib
+            .items
+            .values()
+            .filter(|i| remote.contains(&i.id) && !showing.contains(&i.id))
+            .map(|i| (i.id.clone(), i.size))
+            .collect();
+        for (id, size) in gone {
+            lib.remove(&id);
+            freed.count += 1;
+            freed.bytes += size;
+        }
+    }
+    core.emit_state();
+    Ok(freed)
+}
+
+/// Puts every setting back to its default, keeping the library and the server address.
+#[tauri::command]
+pub fn reset_settings(app: AppHandle, core: State<'_, Core>) {
+    core.update_config(|c| {
+        let server = std::mem::take(&mut c.server);
+        *c = config::Config { server, ..Default::default() };
+    });
+    crate::translate_tray(&app);
 }
 
 #[tauri::command]

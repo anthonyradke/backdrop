@@ -16,7 +16,7 @@ RestartSec=5
 StateDirectory=backdrop
 StateDirectoryMode=0750
 
-# It only reads and writes its own library and runs ffmpeg/ffprobe for thumbnails.
+# It only reads and writes its own library and runs ffmpeg/ffprobe for thumbnails and conversions.
 NoNewPrivileges=yes
 PrivateTmp=yes
 PrivateDevices=yes
@@ -33,7 +33,10 @@ RestrictNamespaces=yes
 RestrictRealtime=yes
 LockPersonality=yes
 SystemCallArchitectures=native
-MemoryMax=512M
+# Room for one 4K H.264 encode; conversions run at low priority so other services stay responsive.
+MemoryMax=1536M
+Nice=10
+CPUWeight=20
 
 [Install]
 WantedBy=multi-user.target

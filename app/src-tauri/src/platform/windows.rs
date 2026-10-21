@@ -21,7 +21,13 @@ use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
 };
 use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
-use windows::Win32::UI::Shell::{DesktopWallpaper, IDesktopWallpaper, DWPOS_FILL, DWPOS_FIT, DWPOS_STRETCH};
+use windows::Win32::System::RemoteDesktop::{
+    WTSFreeMemory, WTSQuerySessionInformationW, WTSSessionInfoEx, WTSINFOEXW, WTS_CURRENT_SERVER_HANDLE,
+    WTS_CURRENT_SESSION, WTS_SESSIONSTATE_LOCK,
+};
+use windows::Win32::UI::Shell::{
+    DesktopWallpaper, IDesktopWallpaper, DWPOS_CENTER, DWPOS_FILL, DWPOS_FIT, DWPOS_STRETCH,
+};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 pub const NATIVE_IMAGES: bool = true;
@@ -169,10 +175,12 @@ pub fn set_image(_app: &AppHandle, d: &Display, path: &Path, fit: Fit) -> Result
                 }
                 CoTaskMemFree(Some(id.0 as *const _));
             }
+            // The engine turns Height into Cover or Contain before it gets here.
             let pos = match fit {
-                Fit::Cover => DWPOS_FILL,
+                Fit::Cover | Fit::Height => DWPOS_FILL,
                 Fit::Contain => DWPOS_FIT,
                 Fit::Stretch => DWPOS_STRETCH,
+                Fit::Center => DWPOS_CENTER,
             };
             dw.SetPosition(pos).map_err(|e| e.to_string())?;
             if found {
@@ -280,6 +288,66 @@ pub fn covered(_app: &AppHandle, wins: &[(String, WebviewWindow, Display)]) -> H
 pub fn on_battery() -> bool {
     let mut s = SYSTEM_POWER_STATUS::default();
     unsafe { GetSystemPowerStatus(&mut s).is_ok() && s.ACLineStatus == 0 }
+}
+
+/// Battery saver (Energy saver on Windows 11).
+pub fn low_power() -> bool {
+    let mut s = SYSTEM_POWER_STATUS::default();
+    unsafe { GetSystemPowerStatus(&mut s).is_ok() && s.SystemStatusFlag == 1 }
+}
+
+/// Whether this session's screen is locked. Anything unexpected counts as unlocked, so a failed
+/// query never leaves the wallpaper paused.
+pub fn locked() -> bool {
+    unsafe {
+        let mut buf = windows::core::PWSTR::null();
+        let mut bytes = 0u32;
+        if WTSQuerySessionInformationW(Some(WTS_CURRENT_SERVER_HANDLE), WTS_CURRENT_SESSION, WTSSessionInfoEx, &mut buf, &mut bytes)
+            .is_err()
+            || buf.is_null()
+        {
+            return false;
+        }
+        let locked = bytes as usize >= std::mem::size_of::<WTSINFOEXW>() && {
+            let info = &*(buf.0 as *const WTSINFOEXW);
+            info.Level == 1 && info.Data.WTSInfoExLevel1.SessionFlags as u32 == WTS_SESSIONSTATE_LOCK
+        };
+        WTSFreeMemory(buf.0 as *mut _);
+        locked
+    }
+}
+
+/// The display whose foreground window belongs to another app (not the desktop, the taskbar or
+/// Backdrop itself).
+pub fn focused(_app: &AppHandle, displays: &[Display]) -> HashSet<String> {
+    unsafe {
+        let fg = GetForegroundWindow();
+        if fg.is_invalid() || IsIconic(fg).as_bool() {
+            return HashSet::new();
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(fg, Some(&mut pid));
+        if pid == std::process::id()
+            || matches!(
+                class_name(fg).as_str(),
+                "Progman"
+                    | "WorkerW"
+                    | "Shell_TrayWnd"
+                    | "Shell_SecondaryTrayWnd"
+                    | "Windows.UI.Core.CoreWindow"
+                    | "XamlExplorerHostIslandWindow"
+                    | "TopLevelWindowForOverflowXamlIsland"
+            )
+        {
+            return HashSet::new();
+        }
+        let mon = MonitorFromWindow(fg, MONITOR_DEFAULTTONULL);
+        let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+        if mon.is_invalid() || !GetMonitorInfoW(mon, &mut mi).as_bool() {
+            return HashSet::new();
+        }
+        displays.iter().filter(|d| rect_eq(&mi.rcMonitor, d)).map(|d| d.key.clone()).collect()
+    }
 }
 
 pub fn cleanup(app: &AppHandle) {

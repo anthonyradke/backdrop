@@ -70,6 +70,18 @@ fn serve(stream: TcpStream, root: &std::path::Path, prefix: &str) -> io::Result<
             }
         }
     }
+    // CORS preflight: the windows load video with crossOrigin so they can draw frames from it.
+    if method == "OPTIONS" {
+        return respond(
+            &mut out,
+            "204 No Content",
+            &[
+                ("Access-Control-Allow-Methods", "GET, HEAD".into()),
+                ("Access-Control-Allow-Headers", "Range".into()),
+                ("Content-Length", "0".into()),
+            ],
+        );
+    }
     if method != "GET" && method != "HEAD" {
         return respond(&mut out, "405 Method Not Allowed", &[("Content-Length", "0".into())]);
     }
@@ -154,6 +166,7 @@ mod tests {
         let (head, body) = get(&base, &format!("{id}/media.mp4"), Some("bytes=2-5"));
         assert!(head.starts_with("HTTP/1.1 206"), "{head}");
         assert!(head.contains("Content-Range: bytes 2-5/10"));
+        assert_eq!(head.matches("Access-Control-Allow-Origin: *").count(), 1);
         assert_eq!(body, b"2345");
 
         let (head, body) = get(&base, &format!("{id}/media.mp4"), None);
