@@ -7,17 +7,12 @@
 //! - `focused`: displays where another app's window is in front
 //! - `on_battery`, `low_power`, `locked`, `cleanup`
 
-#[cfg(target_os = "macos")]
-mod macos;
-#[cfg(target_os = "macos")]
-pub use macos::*;
-
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
 pub use self::windows::*;
 
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(windows))]
 mod other;
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(windows))]
 pub use other::*;

@@ -15,21 +15,17 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "app", "dmg"],
+    "targets": ["nsis"],
     "category": "Utility",
     "shortDescription": "Live wallpapers",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/icon.icns",
       "icons/icon.ico"
     ],
     "windows": {
       "nsis": { "installMode": "currentUser" }
-    },
-    "macOS": {
-      "minimumSystemVersion": "12.0"
     }
   }
 }

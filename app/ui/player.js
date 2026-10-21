@@ -3,7 +3,7 @@
 const { invoke, convertFileSrc } = window.__TAURI__.core;
 const me = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 
-const BASE = convertFileSrc("", "media"); // media://localhost/ (macOS) or http://media.localhost/ (Windows)
+const BASE = convertFileSrc("", "media"); // http://media.localhost/ on Windows
 const FIT = { cover: "cover", contain: "contain", stretch: "fill", center: "none" };
 let cur = null;
 const report = (msg) => invoke("player_log", { msg: String(msg) }).catch(() => {});
@@ -84,8 +84,8 @@ function applyFit(p) {
   el.style.objectFit = fit;
 }
 
-// A full-size frame of the wallpaper becomes the system wallpaper underneath, so the lock screen
-// and Mission Control match. A separate element does the grab so the visible one is never
+// A full-size frame of the wallpaper becomes the system wallpaper underneath, so the desktop
+// matches before the player starts. A separate element does the grab so the visible one is never
 // switched to CORS mode.
 const captured = new Set();
 function capture(p) {

@@ -58,16 +58,16 @@ pub struct Config {
     pub volume: f64,
     /// Video playback rate, 0.25 - 2.0.
     pub speed: f64,
-    /// Darken the strip under the menu bar (macOS) or taskbar (Windows) so it stays readable.
+    /// Darken the strip under the taskbar so it stays readable.
     pub shade_bar: bool,
-    /// Also set a frame of each moving wallpaper as the system wallpaper, so the lock screen,
-    /// Mission Control and the moment before the player starts all match.
+    /// Also set a frame of each moving wallpaper as the system wallpaper, so the desktop matches
+    /// before the player starts.
     pub still_frame: bool,
     pub pause_covered: bool,
     /// Pause a display's wallpaper while another app's window is in front on it.
     pub pause_focused: bool,
     pub pause_battery: bool,
-    /// Pause in Low Power Mode (macOS) or with battery saver on (Windows).
+    /// Pause with battery saver on.
     pub pause_low_power: bool,
     /// Pause while the screen is locked.
     pub pause_locked: bool,

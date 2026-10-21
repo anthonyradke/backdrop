@@ -122,7 +122,7 @@ pub fn now() -> i64 {
         .unwrap_or(0)
 }
 
-/// Codecs the WebView2 player on Windows can't decode (macOS plays all of them).
+/// Codecs the WebView2 player on Windows can't decode.
 pub fn windows_cant_play(codec: &str) -> bool {
     matches!(codec, "hevc" | "prores")
 }

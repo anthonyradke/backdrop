@@ -24,7 +24,6 @@
   --tb-left: 16px;
   color-scheme: dark;
 }
-.os-macos { --tb-left: 84px; }
 
 * { box-sizing: border-box; }
 

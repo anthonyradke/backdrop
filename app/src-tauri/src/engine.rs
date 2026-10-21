@@ -58,7 +58,7 @@ pub struct PlayerParams {
     pub volume: f64,
     pub speed: f64,
     pub paused: bool,
-    /// Where to darken a strip for the menu bar or taskbar: `top`, `bottom`, or none.
+    /// Where to darken a strip for the taskbar: `top`, `bottom`, or none.
     pub shade: Option<&'static str>,
     /// Item id to capture a full-size still frame of (for the system wallpaper), when it has none yet.
     pub capture: Option<String>,
@@ -208,8 +208,6 @@ fn create_player(app: &AppHandle, label: &str, d: &Display) -> tauri::Result<Web
         .position(d.x as f64 / d.scale, d.y as f64 / d.scale);
     #[cfg(windows)]
     let b = b.additional_browser_args(crate::WEBVIEW_ARGS).focusable(false);
-    #[cfg(target_os = "macos")]
-    let b = b.focusable(false).visible_on_all_workspaces(true);
     b.build()
 }
 
@@ -251,7 +249,7 @@ impl Engine {
         let locked = cfg.pause_locked && platform::locked();
         let focused =
             if cfg.pause_focused && !self.slots.is_empty() { platform::focused(&self.app, &displays) } else { HashSet::new() };
-        let shade = cfg.shade_bar.then_some(if cfg!(windows) { "bottom" } else { "top" });
+        let shade = cfg.shade_bar.then_some("bottom");
 
         let mut views = Vec::with_capacity(displays.len());
         let mut wanted: HashSet<String> = HashSet::new();

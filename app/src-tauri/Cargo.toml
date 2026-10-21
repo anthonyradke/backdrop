@@ -1,7 +1,7 @@
 [package]
 name = "backdrop"
 version.workspace = true
-description = "Lightweight live wallpapers for macOS and Windows"
+description = "Lightweight live wallpapers for Windows"
 edition.workspace = true
 license.workspace = true
 
@@ -40,11 +40,6 @@ windows = { version = "0.62", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-objc2 = "0.6"
-objc2-foundation = "0.3"
-objc2-app-kit = "0.3"
 
 [features]
 default = ["custom-protocol"]

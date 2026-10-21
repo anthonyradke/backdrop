@@ -210,11 +210,6 @@ impl Core {
 }
 
 pub fn show_main(app: &AppHandle) {
-    #[cfg(target_os = "macos")]
-    {
-        let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
-        let _ = app.show();
-    }
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
         let _ = w.show();
@@ -227,11 +222,6 @@ pub fn show_main(app: &AppHandle) {
         .min_inner_size(780.0, 520.0)
         .theme(Some(tauri::Theme::Dark))
         .background_color(tauri::window::Color(7, 8, 11, 255));
-    #[cfg(target_os = "macos")]
-    let b = b
-        .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .hidden_title(true)
-        .traffic_light_position(tauri::LogicalPosition::new(16.0, 21.0));
     #[cfg(windows)]
     let b = b.decorations(false).additional_browser_args(WEBVIEW_ARGS);
     match b.build() {
@@ -252,9 +242,6 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let menu = Menu::with_items(app, &[&open, &pause, &next, &PredefinedMenuItem::separator(app)?, &quit])?;
     *app.state::<Core>().tray.lock().unwrap() = Some(TrayItems { open, pause, next, quit });
 
-    #[cfg(target_os = "macos")]
-    let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-template.png"))?;
-    #[cfg(not(target_os = "macos"))]
     let icon = app.default_window_icon().cloned().expect("bundle icon");
 
     let tray = TrayIconBuilder::with_id("tray")
@@ -274,7 +261,6 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         })
         .on_tray_icon_event(|tray, e| {
             // Windows convention: left click opens the window, right click shows the menu.
-            #[cfg(not(target_os = "macos"))]
             if let tauri::tray::TrayIconEvent::Click {
                 button: tauri::tray::MouseButton::Left,
                 button_state: tauri::tray::MouseButtonState::Up,
@@ -283,13 +269,8 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             {
                 show_main(tray.app_handle());
             }
-            #[cfg(target_os = "macos")]
-            let _ = (tray, e);
-        });
-    #[cfg(target_os = "macos")]
-    let tray = tray.icon_as_template(true).show_menu_on_left_click(true);
-    #[cfg(not(target_os = "macos"))]
-    let tray = tray.show_menu_on_left_click(false);
+        })
+        .show_menu_on_left_click(false);
     tray.build(app)?;
     Ok(())
 }
@@ -333,9 +314,6 @@ pub fn run() {
                 tray: Mutex::new(None),
             });
 
-            #[cfg(target_os = "macos")]
-            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-
             build_tray(&handle)?;
             let tx = engine::spawn(handle.clone());
             *app.state::<Core>().engine.lock().unwrap() = Some(tx);
@@ -348,17 +326,6 @@ pub fn run() {
                 show_main(&handle);
             }
             Ok(())
-        })
-        .on_window_event(|window, event| {
-            // Closing the library window frees its webview; the app keeps running in the tray.
-            #[cfg(target_os = "macos")]
-            if window.label() == "main" {
-                if let tauri::WindowEvent::Destroyed = event {
-                    let _ = window.app_handle().set_activation_policy(tauri::ActivationPolicy::Accessory);
-                }
-            }
-            #[cfg(not(target_os = "macos"))]
-            let _ = (window, event);
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
@@ -393,8 +360,6 @@ pub fn run() {
         .run(|app, event| match event {
             // Windows closing (including the last one) never quits; only the tray's Quit does.
             RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(),
-            #[cfg(target_os = "macos")]
-            RunEvent::Reopen { .. } => show_main(app),
             RunEvent::Exit => {
                 log("exiting");
                 platform::cleanup(app);

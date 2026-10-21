@@ -4,7 +4,7 @@
 
 <h1 align="center">Backdrop</h1>
 
-<p align="center">Live wallpapers for macOS and Windows, with an optional self-hosted library server.</p>
+<p align="center">Live wallpapers for Windows, with an optional self-hosted library server.</p>
 
 ---
 
@@ -21,14 +21,14 @@ The Windows build is about 5 MB installed, from a 2 MB installer.
 - Still images (JPG, PNG, WebP and others) set through the native wallpaper API
 - A separate wallpaper per display, or one across all displays
 - Fill, fit, fit-height, stretch and center scaling; playback speed from 0.5× to 2×; optional audio
-- A full-resolution frame of each moving wallpaper is set as the system wallpaper, so the lock screen,
-  Mission Control and the desktop before startup match it
+- A full-resolution frame of each moving wallpaper is set as the Windows wallpaper, so the desktop matches
+  it before Backdrop starts
 - Rotation on a timer (in order or shuffled, the same or different on each display), plus a random pick at
   startup or after waking from sleep, and a *Next wallpaper* item in the tray menu
-- Automatic pause when a window covers the wallpaper, when another app is in front, on battery, in Low
-  Power Mode or battery saver, and while the screen is locked
-- Resolution badges (4K, 1440p, 1080p) and codec details for each item; Windows flags HEVC and ProRes
-  files it can't play
+- Automatic pause when a window covers the wallpaper, when another app is in front, on battery, with
+  battery saver on, and while the screen is locked
+- Resolution badges (4K, 1440p, 1080p) and codec details for each item, with a warning on HEVC and ProRes
+  files, which Windows can't play
 - Drag-and-drop import; HTML wallpapers can be a folder with an `index.html`, a `.zip` of one, or a single
   `.html` file
 - Optional library server: upload from one computer, download on another, or manage the library from any
@@ -36,13 +36,12 @@ The Windows build is about 5 MB installed, from a 2 MB installer.
 - Server-side conversion to H.264, optionally at a lower resolution or frame rate, for a copy that plays
   everywhere and uses less power
 - Free-up-space and reset options; interface in English, Spanish, German and Simplified Chinese
-- Runs from the system tray (menu bar on macOS) with the main window closed, and can start at login
+- Runs from the system tray with the main window closed, and can start at login
 
 ## Requirements
 
 | Component | Requirement |
 |---|---|
-| macOS app | macOS 12 or later |
 | Windows app | Windows 10 or 11 with WebView2 (preinstalled on Windows 11) |
 | Library server | Linux with `ffmpeg` and `ffprobe` (with libx264 and zscale) on the `PATH` |
 
@@ -50,11 +49,8 @@ The Windows build is about 5 MB installed, from a 2 MB installer.
 
 Builds are not yet code-signed.
 
-On Windows, run `Backdrop_<version>_x64-setup.exe`. SmartScreen warns on first launch; choose
+Run `Backdrop_<version>_x64-setup.exe`. SmartScreen warns on first launch; choose
 *More info* > *Run anyway*. The installer is per-user and needs no administrator rights.
-
-On macOS, open the `.dmg` and drag Backdrop to Applications. If Gatekeeper blocks the first launch, allow it
-under System Settings > Privacy & Security > *Open Anyway*.
 
 To connect a library server, enter its address in Settings.
 
@@ -69,8 +65,7 @@ app/
   ui/          library window and player page; plain HTML, CSS and JavaScript with no build step;
                translations in i18n.js
 deploy/        systemd unit for the server
-packaging/     Homebrew cask
-scripts/       build scripts for macOS and Windows
+scripts/       Windows build script
 ```
 
 ### Desktop app
@@ -79,19 +74,12 @@ Each display showing a moving wallpaper gets one borderless WebView window that 
 video decoding. A one-second engine loop (`engine.rs`) assigns players to displays, applies native image
 wallpapers, and handles pausing.
 
-#### Windows (`platform/windows.rs`)
+#### Desktop attachment (`platform/windows.rs`)
 
-The player window is reparented into Explorer's desktop window,
-below the icons. Before Windows 11 24H2 this is the `WorkerW` window Explorer creates in response to
+The player window is reparented into Explorer's desktop window, below the icons. Before Windows 11 24H2 this is the `WorkerW` window Explorer creates in response to
 message `0x052C`. On 24H2 and later, with the raised desktop, the player becomes a layered child of
 `Progman` placed beneath `SHELLDLL_DefView`, the same approach used by Lively Wallpaper. If Explorer
 restarts, players are recreated automatically.
-
-#### macOS (`platform/macos.rs`)
-
-The player window is placed at the desktop window level, above the system
-wallpaper and below the Finder icons. It appears on every Space, ignores mouse input, and is excluded from
-Mission Control and the app switcher.
 
 #### Media delivery (`media.rs`, `loopback.rs`)
 
@@ -153,7 +141,7 @@ Configuration is through environment variables:
 
 Requires a recent stable Rust toolchain.
 
-### Windows (cross-compiled from Linux)
+### Windows app (cross-compiled from Linux)
 
 The Windows app is built on Linux with [cargo-xwin](https://github.com/rust-cross/cargo-xwin):
 
@@ -162,14 +150,6 @@ rustup target add x86_64-pc-windows-msvc
 cargo install --locked cargo-xwin tauri-cli
 sudo apt install nsis lld clang
 scripts/build-windows.sh        # output: dist/Backdrop_<version>_x64-setup.exe
-```
-
-### macOS
-
-The macOS app must be built on a Mac with the Xcode command line tools installed. From the repository root:
-
-```sh
-scripts/build-mac.sh            # installs Rust and the Tauri CLI on first run; output: dist/Backdrop.app and .dmg
 ```
 
 ### Development
@@ -197,10 +177,10 @@ cargo test --workspace
 
 ## Known limitations
 
-- WebView2 on Windows cannot decode HEVC/H.265 or ProRes. Use H.264, VP9 or AV1 on Windows, or convert the
-  file on the server; macOS supports all of these.
-- The still frame covers the desktop wallpaper. On Windows the lock screen keeps its own image.
-- On Windows with mixed display scaling, the player on a secondary display renders at the primary display's
+- WebView2 cannot decode HEVC/H.265 or ProRes. Use H.264, VP9 or AV1, or convert the
+  file on the server.
+- The still frame covers the desktop wallpaper only. The lock screen keeps its own image.
+- With mixed display scaling, the player on a secondary display renders at the primary display's
   scale. Video still fills the screen but may appear slightly softer.
 - HTML wallpapers cannot be paused externally. The player posts `{ backdrop: { paused, muted, volume, speed } }`
   to the page; pages that listen for this message can stop their own animation loop.

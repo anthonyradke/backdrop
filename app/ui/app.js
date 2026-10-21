@@ -41,8 +41,7 @@ function mediaVideoFailed() {
   return true;
 }
 const kindLabel = (e) => (e.kind === "web" ? "HTML" : e.file?.endsWith(".gif") ? "GIF" : e.kind === "video" ? tr("Video") : tr("Image"));
-const isMac = () => S.state?.platform === "macos";
-const trayName = () => (isMac() ? tr("menu bar") : tr("tray"));
+const trayName = () => tr("tray");
 const CODEC = { h264: "H.264", hevc: "HEVC", av1: "AV1", vp9: "VP9", vp8: "VP8", prores: "ProRes", mpeg4: "MPEG-4" };
 const codecName = (c) => CODEC[c] ?? String(c).toUpperCase();
 const cantPlayHere = (e) => S.state?.platform === "windows" && ["hevc", "prores"].includes(e.codec);
@@ -654,12 +653,11 @@ function renderDisplays() {
       <div>${d.item ? `<button class="act" data-act="clearDisplay" data-display="${esc(d.key)}">${tr("Clear")}</button>` : ""}</div>
     </div>`;
   }).join("");
-  const os = isMac() ? "macOS" : "Windows";
-  return `<div class="page" data-key="p-displays"><div class="scroll"><div class="narrow">
+    return `<div class="page" data-key="p-displays"><div class="scroll"><div class="narrow">
     <span class="label">${tr("Displays")}</span>
     ${map}
     ${rows || `<div class="muted">${tr("No displays found.")}</div>`}
-    <p class="hint">${tr("Choose wallpapers in the Library. Still images are handed to {os} as the normal wallpaper, so they cost nothing to show. Videos and HTML play behind your desktop icons and pause when they're covered.", { os })}</p>
+    <p class="hint">${tr("Choose wallpapers in the Library. Still images are handed to {os} as the normal wallpaper, so they cost nothing to show. Videos and HTML play behind your desktop icons and pause when they're covered.", { os: "Windows" })}</p>
   </div></div></div>`;
 }
 
@@ -675,7 +673,7 @@ function renderSettings() {
   const r = c.rotation;
   const draft = S.serverDraft ?? c.server;
   const st = S.serverStatus ?? (c.server ? (S.remoteError ? { ok: false, text: S.remoteError } : S.remote ? { ok: true, text: connectedText() } : null) : null);
-  const bar = isMac() ? tr("menu bar") : tr("taskbar");
+  const bar = tr("taskbar");
   const poolHint = r.pool.length
     ? tr("Rotates through the {n} wallpapers marked for rotation in the Library.", { n: r.pool.length })
     : tr("Rotates through every wallpaper on this computer. Mark some with Add to rotation in the Library to narrow it down.");
@@ -702,7 +700,7 @@ function renderSettings() {
         ${c.muted ? "" : `<input id="volume" type="range" min="0" max="100" value="${Math.round(c.volume * 100)}">`}
         ${seg("muted", c.muted ? "1" : "0", [["1", tr("Muted")], ["0", tr("On")]])}</div>
       ${row(tr("Shade the {bar}", { bar }), tr("Darkens a strip of moving wallpapers under the {bar} so it stays readable.", { bar }), offOn("shadeBar", c.shadeBar))}
-      ${row(tr("Match the system wallpaper"), tr("Sets a still frame of each moving wallpaper as the {os} wallpaper, so the lock screen and {where} match.", { os: isMac() ? "macOS" : "Windows", where: isMac() ? tr("Mission Control") : tr("the desktop before Backdrop starts") }), offOn("stillFrame", c.stillFrame))}
+      ${row(tr("Match the system wallpaper"), tr("Sets a still frame of each moving wallpaper as the Windows wallpaper, so the desktop matches before Backdrop starts."), offOn("stillFrame", c.stillFrame))}
     </div>
 
     <div class="set-sec">
@@ -720,9 +718,9 @@ function renderSettings() {
     <div class="set-sec">
       <span class="label">${tr("Saving power")}</span>
       ${row(tr("Pause when covered"), tr("Stops a wallpaper while a maximized or fullscreen app hides it."), offOn("pauseCovered", c.pauseCovered))}
-      ${row(tr("Pause when an app is in front"), tr("Plays only while the desktop{or} has focus on that display.", { or: isMac() ? tr(" or Finder") : "" }), offOn("pauseFocused", c.pauseFocused))}
+      ${row(tr("Pause when an app is in front"), tr("Plays only while the desktop has focus on that display."), offOn("pauseFocused", c.pauseFocused))}
       ${row(tr("Pause on battery"), "", offOn("pauseBattery", c.pauseBattery))}
-      ${row(isMac() ? tr("Pause in Low Power Mode") : tr("Pause with battery saver on"), "", offOn("pauseLowPower", c.pauseLowPower))}
+      ${row(tr("Pause with battery saver on"), "", offOn("pauseLowPower", c.pauseLowPower))}
       ${row(tr("Pause when locked"), "", offOn("pauseLocked", c.pauseLocked))}
     </div>
 
