@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cross-compiles the Windows app and installer on x1 (Linux) with cargo-xwin, then copies the
+# Cross-compiles the Windows app and installer on Linux with cargo-xwin, then copies the
 # installer to dist/. Needs: rustup target x86_64-pc-windows-msvc, cargo-xwin, tauri-cli, nsis, lld.
 set -euo pipefail
 cd "$(dirname "$0")/.."

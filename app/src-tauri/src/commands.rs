@@ -2,15 +2,12 @@
 
 use crate::config::{self, Fit, Order};
 use crate::engine::{read_displays, PlayerParams};
-use crate::library;
-use crate::{log, remote, Core, StateView};
-use backdrop_common::{self as common, Item, Kind, Listed};
+use crate::{common, library, log, Core, StateView};
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, State, WebviewWindow};
+use std::time::Instant;
+use tauri::{AppHandle, State, WebviewWindow};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
@@ -18,23 +15,6 @@ use tauri_plugin_opener::OpenerExt;
 #[tauri::command]
 pub fn get_state(core: State<'_, Core>) -> StateView {
     core.state_view()
-}
-
-#[tauri::command]
-pub async fn remote_items(core: State<'_, Core>) -> Result<Vec<Listed>, String> {
-    let server = core.server()?;
-    remote::list(&server).await
-}
-
-/// Checks the address and saves it when it answers. An empty address turns sharing off.
-#[tauri::command]
-pub async fn test_server(core: State<'_, Core>, url: String) -> Result<String, String> {
-    let server = config::normalize_server(&url);
-    if !server.is_empty() {
-        remote::health(&server).await?;
-    }
-    core.update_config(|c| c.server = server.clone());
-    Ok(server)
 }
 
 #[derive(Serialize)]
@@ -135,7 +115,7 @@ pub fn save_thumb(
 }
 
 #[tauri::command]
-pub async fn rename_item(core: State<'_, Core>, id: String, name: String, remote: bool) -> Result<(), String> {
+pub fn rename_item(core: State<'_, Core>, id: String, name: String) -> Result<(), String> {
     let name = name.trim().to_string();
     if name.is_empty() {
         return Err("name can't be empty".into());
@@ -149,10 +129,6 @@ pub async fn rename_item(core: State<'_, Core>, id: String, name: String, remote
         }
     }
     core.emit_state();
-    if remote {
-        let server = core.server()?;
-        remote::rename(&server, &id, &name).await?;
-    }
     Ok(())
 }
 
@@ -163,188 +139,17 @@ pub fn delete_local(core: State<'_, Core>, id: String) {
     core.emit_state();
 }
 
+/// Shows a wallpaper on one display, or on all of them when `display` is null.
 #[tauri::command]
-pub async fn delete_remote(core: State<'_, Core>, id: String) -> Result<(), String> {
-    let server = core.server()?;
-    remote::delete(&server, &id).await
-}
-
-/// Sends `transfer` events to the library window, at most ~5 a second.
-struct Progress {
-    app: AppHandle,
-    id: String,
-    dir: &'static str,
-    last: Mutex<Option<Instant>>,
-}
-
-#[derive(Serialize, Clone)]
-struct TransferEvent<'a> {
-    id: &'a str,
-    dir: &'a str,
-    done: u64,
-    total: u64,
-    state: &'a str,
-    error: Option<String>,
-}
-
-impl Progress {
-    fn new(app: &AppHandle, id: &str, dir: &'static str) -> Self {
-        Self { app: app.clone(), id: id.to_string(), dir, last: Mutex::new(None) }
-    }
-
-    fn send(&self, done: u64, total: u64, state: &str, error: Option<String>) {
-        let _ = self.app.emit_to(
-            "main",
-            "transfer",
-            TransferEvent { id: &self.id, dir: self.dir, done, total, state, error },
-        );
-    }
-
-    fn tick(&self, done: u64, total: u64) {
-        let mut last = self.last.lock().unwrap();
-        if last.is_some_and(|t| t.elapsed() < Duration::from_millis(200)) && done < total {
-            return;
-        }
-        *last = Some(Instant::now());
-        drop(last);
-        self.send(done, total, "active", None);
-    }
-}
-
-/// Marks an item as transferring for as long as it lives.
-struct TransferGuard<'a> {
-    core: &'a Core,
-    id: String,
-}
-
-impl<'a> TransferGuard<'a> {
-    fn new(core: &'a Core, id: &str) -> Result<Self, String> {
-        if !core.transfers.lock().unwrap().insert(id.to_string()) {
-            return Err("already transferring".into());
-        }
-        core.emit_state();
-        Ok(Self { core, id: id.to_string() })
-    }
-}
-
-impl Drop for TransferGuard<'_> {
-    fn drop(&mut self) {
-        self.core.transfers.lock().unwrap().remove(&self.id);
-        self.core.emit_state();
-    }
-}
-
-#[tauri::command]
-pub async fn upload(app: AppHandle, core: State<'_, Core>, id: String) -> Result<(), String> {
-    let server = core.server()?;
-    let (item, path, thumb) = {
-        let lib = core.library.lock().unwrap();
-        let item = lib.items.get(&id).cloned().ok_or("not on this computer")?;
-        let path = lib.media_path(&item);
-        let thumb = lib.has_thumb(&id).then(|| lib.dir(&id).join("thumb.jpg"));
-        (item, path, thumb)
-    };
-    let _guard = TransferGuard::new(&core, &id)?;
-    let progress = std::sync::Arc::new(Progress::new(&app, &id, "up"));
-    let p = progress.clone();
-    let result = remote::upload(&server, &path, &item.file, &item.name, move |d, t| p.tick(d, t)).await;
-    match result {
-        Ok(remote_item) => {
-            if remote_item.id != item.id {
-                log(format!("upload of {} came back as {}", item.id, remote_item.id));
-            }
-            // The server makes its own thumbnails for video and images; web pages need ours.
-            if item.kind == Kind::Web {
-                if let Some(t) = thumb.and_then(|t| std::fs::read(t).ok()) {
-                    let _ = remote::put_thumb(&server, &remote_item.id, t).await;
-                }
-            }
-            progress.send(item.size, item.size, "done", None);
-            Ok(())
-        }
-        Err(e) => {
-            progress.send(0, 0, "error", Some(e.clone()));
-            Err(e)
-        }
-    }
-}
-
-/// Pulls an item from the server into the local library (no-op if it's already here).
-pub(crate) async fn fetch(app: &AppHandle, core: &Core, id: &str) -> Result<Item, String> {
-    if let Some(item) = core.library.lock().unwrap().items.get(id).cloned() {
-        return Ok(item);
-    }
-    if !common::valid_id(id) {
-        return Err("bad id".into());
-    }
-    let server = core.server()?;
-    let item = remote::list(&server)
-        .await?
-        .into_iter()
-        .map(|l| l.item)
-        .find(|i| i.id == id)
-        .ok_or("that wallpaper isn't in the shared library any more")?;
-    let _guard = TransferGuard::new(core, id)?;
-    let progress = Progress::new(app, id, "down");
-    let root = core.library.lock().unwrap().root.clone();
-    let staging = root.join(format!(".download-{id}"));
-    let _ = std::fs::remove_dir_all(&staging);
-    std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
-
-    let result = async {
-        remote::download(&server, id, &staging.join(&item.file), |d, t| progress.tick(d, t)).await?;
-        if let Err(e) = remote::download_thumb(&server, id, &staging.join("thumb.jpg")).await {
-            log(format!("thumbnail for {id}: {e}"));
-        }
-        let (st, it) = (staging.clone(), item.clone());
-        tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
-            let media = st.join(&it.file);
-            if common::hash_file(&media).map_err(|e| e.to_string())? != it.id {
-                return Err("the download doesn't match the library copy".into());
-            }
-            if it.kind == Kind::Web {
-                common::pack::extract(&media, &st.join("web")).map_err(|e| e.to_string())?;
-            }
-            library::write_meta(&st, &it).map_err(|e| e.to_string())
-        })
-        .await
-        .map_err(|e| e.to_string())??;
-        let dest = root.join(id);
-        let _ = std::fs::remove_dir_all(&dest);
-        std::fs::rename(&staging, &dest).map_err(|e| e.to_string())
-    }
-    .await;
-
-    match result {
-        Ok(()) => {
-            core.library.lock().unwrap().items.insert(id.to_string(), item.clone());
-            progress.send(item.size, item.size, "done", None);
-            core.emit_state();
-            Ok(item)
-        }
-        Err(e) => {
-            let _ = std::fs::remove_dir_all(&staging);
-            progress.send(0, 0, "error", Some(e.clone()));
-            Err(e)
-        }
-    }
-}
-
-#[tauri::command]
-pub async fn download(app: AppHandle, core: State<'_, Core>, id: String) -> Result<(), String> {
-    fetch(&app, &core, &id).await.map(|_| ())
-}
-
-/// Shows a wallpaper on one display, or on all of them when `display` is null. Wallpapers that
-/// only live on the server are downloaded first.
-#[tauri::command]
-pub async fn set_wallpaper(
+pub fn set_wallpaper(
     app: AppHandle,
     core: State<'_, Core>,
     id: String,
     display: Option<String>,
 ) -> Result<(), String> {
-    fetch(&app, &core, &id).await?;
+    if !core.library.lock().unwrap().items.contains_key(&id) {
+        return Err("not in the library".into());
+    }
     let keys: Vec<String> = match display {
         Some(k) => vec![k],
         None => {
@@ -503,63 +308,10 @@ pub fn save_frame(core: State<'_, Core>, id: String, data: String) -> Result<(),
     Ok(())
 }
 
-/// Starts an H.264 copy of a server video on the server.
-#[tauri::command]
-pub async fn convert_remote(
-    core: State<'_, Core>,
-    id: String,
-    max_height: Option<u32>,
-    max_fps: Option<u32>,
-) -> Result<serde_json::Value, String> {
-    let server = core.server()?;
-    remote::convert(&server, &id, max_height, max_fps).await
-}
-
-#[tauri::command]
-pub async fn remote_jobs(core: State<'_, Core>) -> Result<serde_json::Value, String> {
-    let server = core.server()?;
-    remote::jobs(&server).await
-}
-
-#[derive(Serialize)]
-pub struct Freed {
-    count: usize,
-    bytes: u64,
-}
-
-/// Removes local copies of wallpapers that are also on the server and aren't showing anywhere.
-/// They download again when picked.
-#[tauri::command]
-pub async fn free_space(core: State<'_, Core>) -> Result<Freed, String> {
-    let server = core.server()?;
-    let remote: std::collections::HashSet<String> = remote::list(&server).await?.into_iter().map(|l| l.item.id).collect();
-    let showing: std::collections::HashSet<String> = core.config.lock().unwrap().assignments.values().cloned().collect();
-    let mut freed = Freed { count: 0, bytes: 0 };
-    {
-        let mut lib = core.library.lock().unwrap();
-        let gone: Vec<(String, u64)> = lib
-            .items
-            .values()
-            .filter(|i| remote.contains(&i.id) && !showing.contains(&i.id))
-            .map(|i| (i.id.clone(), i.size))
-            .collect();
-        for (id, size) in gone {
-            lib.remove(&id);
-            freed.count += 1;
-            freed.bytes += size;
-        }
-    }
-    core.emit_state();
-    Ok(freed)
-}
-
-/// Puts every setting back to its default, keeping the library and the server address.
+/// Puts every setting back to its default, keeping the library.
 #[tauri::command]
 pub fn reset_settings(app: AppHandle, core: State<'_, Core>) {
-    core.update_config(|c| {
-        let server = std::mem::take(&mut c.server);
-        *c = config::Config { server, ..Default::default() };
-    });
+    core.update_config(|c| *c = config::Config::default());
     crate::translate_tray(&app);
 }
 
@@ -587,7 +339,6 @@ pub fn open_library_dir(app: AppHandle, core: State<'_, Core>) -> Result<(), Str
 pub fn player_init(window: WebviewWindow, core: State<'_, Core>) -> Option<PlayerParams> {
     core.players.lock().unwrap().get(window.label()).cloned()
 }
-
 
 /// Players report problems (a video that won't decode, autoplay refused) into backdrop.log.
 #[tauri::command]

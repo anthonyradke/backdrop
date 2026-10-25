@@ -1,4 +1,4 @@
-//! Types shared by the app and the library server.
+//! Library item types and file helpers.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -16,7 +16,7 @@ pub enum Kind {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Item {
-    /// First 16 hex chars of the file's SHA-256, so the same file gets the same id on every machine.
+    /// First 16 hex chars of the file's SHA-256, so importing the same file twice gives the same id.
     pub id: String,
     pub name: String,
     pub kind: Kind,
@@ -27,7 +27,7 @@ pub struct Item {
     pub width: Option<u32>,
     #[serde(default)]
     pub height: Option<u32>,
-    /// Video codec as ffprobe names it (`h264`, `hevc`, `av1`, `vp9`, `prores`, ...), when known.
+    /// Video codec in ffprobe-style names (`h264`, `hevc`, `av1`, `vp9`, `prores`, ...), when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codec: Option<String>,
     /// Frames per second, when known.
@@ -37,16 +37,6 @@ pub struct Item {
     pub added: i64,
     #[serde(default)]
     pub tags: Vec<String>,
-}
-
-/// An item as the server lists it.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Listed {
-    #[serde(flatten)]
-    pub item: Item,
-    /// Whether the server has a thumbnail for it.
-    #[serde(default)]
-    pub thumb: bool,
 }
 
 pub const VIDEO_EXTS: &[&str] = &["mp4", "m4v", "mov", "webm", "mkv"];

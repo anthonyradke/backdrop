@@ -1,7 +1,7 @@
 //! The local library: `<app data>/library/<id>/` holding `meta.json`, the media file and `thumb.jpg`.
 //! Web wallpapers also keep their zip extracted in `web/`.
 
-use backdrop_common::{self as common, Item, Kind};
+use crate::common::{self, Item, Kind};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::io;

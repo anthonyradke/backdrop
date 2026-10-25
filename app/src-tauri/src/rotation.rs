@@ -1,11 +1,9 @@
 //! Changing wallpapers on a timer, at startup, after waking from sleep, or from the tray's
-//! "Next wallpaper". Picks come from the rotation list (or the whole local library when it's
-//! empty); items that only live on the server are downloaded on their turn.
+//! "Next wallpaper". Picks come from the rotation list (or the whole library when it's empty).
 
 use crate::config::Order;
 use crate::engine::read_displays;
-use crate::{log, Core};
-use backdrop_common as common;
+use crate::{common, log, Core};
 use std::collections::{BTreeMap, HashSet};
 use std::hash::{BuildHasher, Hasher};
 use std::time::{Duration, Instant};
@@ -63,22 +61,8 @@ pub async fn advance(app: &AppHandle, why: Why) -> Result<(), String> {
     }
     let shuffle = matches!(why, Why::Start | Why::Wake) || cfg.rotation.order == Order::Shuffle;
     let picks = plan(&pool, &cfg.assignments, &keys, cfg.rotation.per_display, shuffle, rand_below);
-
-    // Server-only picks download first; a display whose pick can't be had keeps what it shows.
-    let mut ok: HashSet<String> = HashSet::new();
-    for id in picks.iter().map(|(_, id)| id.clone()).collect::<HashSet<_>>() {
-        match crate::commands::fetch(app, &core, &id).await {
-            Ok(_) => {
-                ok.insert(id);
-            }
-            Err(e) => log(format!("rotation: can't get {id}: {e}")),
-        }
-    }
-    if ok.is_empty() {
-        return Err("none of the picks could be loaded".into());
-    }
     core.update_config(|c| {
-        for (k, id) in picks.into_iter().filter(|(_, id)| ok.contains(id)) {
+        for (k, id) in picks {
             c.assignments.insert(k, id);
         }
     });
@@ -86,13 +70,13 @@ pub async fn advance(app: &AppHandle, why: Why) -> Result<(), String> {
     Ok(())
 }
 
-/// The ids to rotate through: the rotation list as given, or every local wallpaper this computer
-/// can play when the list is empty.
+/// The ids to rotate through: the rotation list (minus anything deleted since), or every
+/// wallpaper this computer can play when the list is empty.
 fn candidates(core: &Core, pool: &[String]) -> Vec<String> {
-    if !pool.is_empty() {
-        return pool.iter().filter(|id| common::valid_id(id)).cloned().collect();
-    }
     let lib = core.library.lock().unwrap();
+    if !pool.is_empty() {
+        return pool.iter().filter(|id| lib.items.contains_key(*id)).cloned().collect();
+    }
     let mut items: Vec<_> = lib
         .items
         .values()

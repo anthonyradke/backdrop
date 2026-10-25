@@ -48,8 +48,6 @@ impl Default for Rotation {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Config {
-    /// Base URL of the shared library server, e.g. `https://host:8448`. Empty = local only.
-    pub server: String,
     /// Display key -> item id.
     pub assignments: BTreeMap<String, String>,
     pub fit: Fit,
@@ -79,7 +77,6 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            server: String::new(),
             assignments: BTreeMap::new(),
             fit: Fit::Cover,
             muted: true,
@@ -113,34 +110,15 @@ pub fn save(path: &Path, cfg: &Config) {
     }
 }
 
-/// `host.example.ts.net:8448` -> `https://host.example.ts.net:8448`; trailing slashes removed.
-pub fn normalize_server(s: &str) -> String {
-    let s = s.trim().trim_end_matches('/');
-    if s.is_empty() {
-        String::new()
-    } else if s.starts_with("http://") || s.starts_with("https://") {
-        s.to_string()
-    } else {
-        format!("https://{s}")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn server_urls() {
-        assert_eq!(normalize_server(" host:8448/ "), "https://host:8448");
-        assert_eq!(normalize_server("http://127.0.0.1:8092"), "http://127.0.0.1:8092");
-        assert_eq!(normalize_server(""), "");
-    }
-
-    #[test]
     fn partial_config_fills_defaults() {
+        // Old configs still have a "server" field; it's ignored.
         let c: Config = serde_json::from_str(r#"{"server":"https://a"}"#).unwrap();
         assert!(c.muted && c.pause_covered && c.still_frame);
-        assert_eq!(c.server, "https://a");
         assert_eq!((c.speed, c.rotation.minutes, c.rotation.order), (1.0, 0, Order::Shuffle));
         let c: Config = serde_json::from_str(r#"{"fit":"height","rotation":{"minutes":30}}"#).unwrap();
         assert_eq!((c.fit, c.rotation.minutes, c.rotation.on_wake), (Fit::Height, 30, false));

@@ -10,18 +10,11 @@ const $ = (s) => document.querySelector(s);
 
 const S = {
   tab: "library",
-  filter: "all", // all | local | remote | rotation
+  filter: "all", // all | rotation
   query: "",
   sel: null, // selected item id
   state: null, // StateView from Rust
-  remote: null, // items on the server, or null when not loaded / not set up
-  remoteError: null,
-  jobs: [], // conversions on the server
-  conv: { h: 1080, fps: 0 }, // chosen options for a new conversion
-  tx: {}, // id -> { dir, done, total, state }
   thumbVer: {}, // id -> cache buster after a new thumbnail
-  serverDraft: null,
-  serverStatus: null, // { ok, text }
   videoViaLoopback: false,
 };
 
@@ -60,8 +53,6 @@ function resLabel(e) {
 }
 
 const ICON = {
-  computer: '<svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="8" rx="1.2"/><path d="M6 14h4M8 11v3"/></svg>',
-  cloud: '<svg viewBox="0 0 16 16"><path d="M4.5 12.5h7a3 3 0 0 0 .4-5.97A4 4 0 0 0 4.2 7.6 2.5 2.5 0 0 0 4.5 12.5z"/></svg>',
   plus: '<svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></svg>',
   folder: '<svg viewBox="0 0 16 16"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.6l1.4 1.5h5A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z"/></svg>',
   cycle: '<svg viewBox="0 0 16 16"><path d="M13 5.5A5.5 5.5 0 0 0 3.2 6M3 10.5A5.5 5.5 0 0 0 12.8 10"/><path d="M13 2.5v3h-3M3 13.5v-3h3"/></svg>',
@@ -127,85 +118,22 @@ function patchAttrs(o, n) {
 // ---------- data ----------
 
 function entries() {
-  const map = new Map();
-  for (const it of S.state?.items ?? []) map.set(it.id, { ...it, local: true, remote: false });
-  for (const it of S.remote ?? []) {
-    const e = map.get(it.id);
-    if (e) {
-      e.remote = true;
-      // The server probes every upload; fill in what this computer couldn't work out.
-      e.codec ??= it.codec;
-      e.fps ??= it.fps;
-      e.width ??= it.width;
-      e.height ??= it.height;
-    } else map.set(it.id, { ...it, local: false, remote: true });
-  }
-  return [...map.values()].sort((a, b) => b.added - a.added || a.name.localeCompare(b.name));
+  return [...(S.state?.items ?? [])].sort((a, b) => b.added - a.added || a.name.localeCompare(b.name));
 }
 
 const pool = () => S.state?.config.rotation.pool ?? [];
 const inRotation = (id) => pool().includes(id);
 
 function thumbUrl(e) {
-  if (e.local) {
-    if (e.thumb) return mediaUrl(`${e.id}/thumb.jpg`) + `?v=${S.thumbVer[e.id] ?? 0}`;
-    // A local copy without a thumbnail can still borrow the server's.
-    const r = S.remote?.find((x) => x.id === e.id);
-    return r?.thumb ? `${S.state.config.server}/api/items/${e.id}/thumb` : null;
-  }
-  if (e.thumb && S.state.config.server) return `${S.state.config.server}/api/items/${e.id}/thumb`;
-  return null;
+  return e.thumb ? mediaUrl(`${e.id}/thumb.jpg`) + `?v=${S.thumbVer[e.id] ?? 0}` : null;
 }
 
 function liveOn(id) {
   return (S.state?.displays ?? []).filter((d) => d.item === id);
 }
 
-async function refreshRemote() {
-  if (!S.state?.config.server) {
-    S.remote = null;
-    S.remoteError = null;
-    S.jobs = [];
-    return render();
-  }
-  try {
-    S.remote = await invoke("remote_items");
-    S.remoteError = null;
-  } catch (e) {
-    S.remoteError = String(e);
-  }
-  render();
-  refreshJobs();
-}
-
-// Conversions run on the server; poll while any is unfinished.
-async function refreshJobs() {
-  clearTimeout(refreshJobs.timer);
-  if (!S.state?.config.server) return;
-  let jobs;
-  try {
-    jobs = await invoke("remote_jobs");
-  } catch {
-    return; // an older server without conversions
-  }
-  const before = new Map(S.jobs.map((j) => [j.id, j.state]));
-  S.jobs = jobs;
-  let finished = false;
-  for (const j of jobs) {
-    const was = before.get(j.id);
-    if (was && was !== j.state && (j.state === "done" || j.state === "error")) {
-      finished = true;
-      if (j.state === "done") toast(tr("Converted copy is ready: {label}", { label: j.label }));
-      else toast(tr("Conversion failed: {error}", { error: j.error }), true);
-    }
-  }
-  render();
-  if (finished) refreshRemote();
-  if (jobs.some((j) => j.state === "queued" || j.state === "running")) refreshJobs.timer = setTimeout(refreshJobs, 2000);
-}
-
 // ---------- thumbnails ----------
-// Local items get their thumbnail from a frame the webview decodes here, so clients need no ffmpeg.
+// Thumbnails come from a frame the webview decodes here, so there's no ffmpeg to ship.
 
 const thumbQueue = new Set();
 let thumbBusy = false;
@@ -288,7 +216,7 @@ const setting = (patch) => call("update_settings", { patch });
 const on = (el) => el.dataset.v === "1";
 
 const actions = {
-  tab: (el) => { S.tab = el.dataset.tab; render(); refreshRemote(); },
+  tab: (el) => { S.tab = el.dataset.tab; render(); },
   filter: (el) => { S.filter = el.dataset.f; render(); },
   pick: async (el) => importResult(await call("pick_files", { folder: el.dataset.folder === "1" })),
   select: (el) => { S.sel = S.sel === el.dataset.id ? null : el.dataset.id; render(); },
@@ -300,30 +228,11 @@ const actions = {
   },
   rotation: (el) => call("set_in_rotation", { id: el.dataset.id, on: !inRotation(el.dataset.id) }),
   next: () => call("next_wallpaper"),
-  upload: async (el) => {
-    await call("upload", { id: el.dataset.id }, tr("Uploaded to the server"));
-    refreshRemote();
-  },
-  download: async (el) => { await call("download", { id: el.dataset.id }, tr("Downloaded")); },
-  convH: (el) => { S.conv.h = Number(el.dataset.v); render(); },
-  convFps: (el) => { S.conv.fps = Number(el.dataset.v); render(); },
-  convert: async (el) => {
-    await call("convert_remote", { id: el.dataset.id, maxHeight: S.conv.h || null, maxFps: S.conv.fps || null }, tr("Converting on the server…"));
-    refreshJobs();
-  },
-  removeLocal: async (el) => {
+  remove: async (el) => {
     const e = entries().find((x) => x.id === el.dataset.id);
-    if (!e) return;
-    if (!e.remote && !confirm(tr('"{name}" isn\'t on the server. Remove it from this computer for good?', { name: e.name }))) return;
+    if (!e || !confirm(tr('Remove "{name}" from your library? The file is deleted from the library folder.', { name: e.name }))) return;
     await call("delete_local", { id: e.id });
-    if (!e.remote && S.sel === e.id) S.sel = null;
-  },
-  removeRemote: async (el) => {
-    const e = entries().find((x) => x.id === el.dataset.id);
-    if (!e || !confirm(tr('Delete "{name}" from the shared library? Other computers will lose access to it.', { name: e.name }))) return;
-    await call("delete_remote", { id: e.id }, tr("Deleted from the server"));
-    if (!e.local && S.sel === e.id) S.sel = null;
-    refreshRemote();
+    if (S.sel === e.id) S.sel = null;
   },
   clearDisplay: (el) => call("clear_wallpaper", { display: el.dataset.display }),
   togglePause: () => call("set_paused", { paused: !S.state.paused }),
@@ -344,41 +253,12 @@ const actions = {
   rotOnWake: (el) => setting({ rotationOnWake: on(el) }),
   language: (el) => setting({ language: el.dataset.v }),
   autostart: (el) => call("set_autostart", { on: on(el) }),
-  connect: async () => {
-    const url = S.serverDraft ?? S.state.config.server;
-    S.serverStatus = { ok: true, text: tr("Checking…") };
-    render();
-    try {
-      const saved = await invoke("test_server", { url });
-      S.serverDraft = null;
-      S.serverStatus = saved ? { ok: true, text: tr("Connected") } : { ok: true, text: tr("Sharing is off") };
-      await refreshRemote();
-      if (saved && S.remote) S.serverStatus = { ok: true, text: connectedText() };
-    } catch (e) {
-      S.serverStatus = { ok: false, text: String(e) };
-    }
-    render();
-  },
-  disconnect: async () => {
-    await invoke("test_server", { url: "" });
-    S.serverDraft = null;
-    S.serverStatus = null;
-    refreshRemote();
-  },
   openDir: () => call("open_library_dir"),
-  freeSpace: async () => {
-    if (!confirm(tr("Remove the copies on this computer of wallpapers that are also on the server and not showing right now? They download again when you pick them."))) return;
-    const r = await call("free_space");
-    const size = fmtSize(r.bytes);
-    toast(!r.count ? tr("Nothing to free up") : r.count === 1 ? tr("Freed {size} (1 wallpaper)", { size }) : tr("Freed {size} ({n} wallpapers)", { size, n: r.count }));
-  },
   reset: async () => {
-    if (!confirm(tr("Put every setting back to its default? Your library and server address stay; wallpapers are cleared from the displays."))) return;
+    if (!confirm(tr("Put every setting back to its default? Your library stays; wallpapers are cleared from the displays."))) return;
     await call("reset_settings", {}, tr("Settings reset"));
   },
 };
-
-const connectedText = () => tr("Connected · {n} in the shared library", { n: S.remote.length });
 
 document.addEventListener("click", (ev) => {
   const win = ev.target.closest("[data-win]");
@@ -397,7 +277,6 @@ document.addEventListener("click", (ev) => {
 
 document.addEventListener("input", (ev) => {
   if (ev.target.id === "search") { S.query = ev.target.value; render(); }
-  if (ev.target.id === "addr") S.serverDraft = ev.target.value;
   if (ev.target.id === "volume") {
     clearTimeout(S.volTimer);
     const v = Number(ev.target.value) / 100;
@@ -406,7 +285,6 @@ document.addEventListener("input", (ev) => {
 });
 
 document.addEventListener("keydown", (ev) => {
-  if (ev.target.id === "addr" && ev.key === "Enter") actions.connect();
   if (ev.target.classList?.contains("name-in")) {
     if (ev.key === "Enter") ev.target.blur();
     if (ev.key === "Escape") { ev.target.value = ev.target.dataset.orig; ev.target.blur(); }
@@ -421,8 +299,7 @@ document.addEventListener("focusout", async (ev) => {
   const e = entries().find((x) => x.id === el.dataset.id);
   if (!e) return;
   try {
-    await invoke("rename_item", { id: e.id, name, remote: e.remote });
-    if (e.remote) refreshRemote();
+    await invoke("rename_item", { id: e.id, name });
   } catch (err) {
     toast(String(err), true);
   }
@@ -469,8 +346,6 @@ function placeholder(e, key = "") {
 function tileHtml(e) {
   const t = thumbUrl(e);
   const live = liveOn(e.id);
-  const tx = S.tx[e.id];
-  const pct = tx && tx.state === "active" && tx.total ? Math.round((100 * tx.done) / tx.total) : null;
   const meta = [e.width ? `${e.width}×${e.height}` : null, fmtSize(e.size)].filter(Boolean).join(" · ");
   const res = resLabel(e);
   return `<button class="tile ${S.sel === e.id ? "sel" : ""}" data-act="select" data-id="${e.id}" data-key="t-${e.id}">
@@ -481,61 +356,29 @@ function tileHtml(e) {
       ${res ? `<span class="res">${res}</span>` : ""}
       ${inRotation(e.id) ? `<span class="rot" title="${esc(tr("In rotation"))}">${ICON.cycle}</span>` : ""}
       ${live.length ? `<span class="livetag"><span class="dot ${live[0].status}"></span>${live.length > 1 ? esc(tr("{n} displays", { n: live.length })) : esc(live[0].name)}</span>` : ""}
-      ${pct !== null ? `<div class="bar" style="width:${pct}%"></div>` : ""}
     </div>
     <div class="t-name">${esc(e.name)}</div>
-    <div class="t-meta"><span>${meta}</span>
-      <span class="where"><span class="${e.local ? "on" : ""}" title="${esc(tr(e.local ? "On this computer" : "Not on this computer"))}">${ICON.computer}</span>${S.state.config.server ? `<span class="${e.remote ? "on" : ""}" title="${esc(tr(e.remote ? "In the shared library" : "Not on the server yet"))}">${ICON.cloud}</span>` : ""}</span>
-    </div>
+    <div class="t-meta"><span>${meta}</span></div>
   </button>`;
-}
-
-function convertHtml(e) {
-  if (e.kind !== "video" || !S.state.config.server) return "";
-  const mine = S.jobs.filter((j) => j.source === e.id);
-  const active = mine.filter((j) => j.state === "queued" || j.state === "running");
-  const rows = mine.slice(-3).map((j) => {
-    const what = j.state === "running" ? `${Math.round(j.progress * 100)}%` : j.state === "queued" ? tr("Waiting") : j.state === "done" ? tr("Done") : tr("Failed");
-    return `<div class="job"><span>${esc(j.label)}</span><span class="${j.state === "error" ? "err" : "muted"}" title="${esc(j.error ?? "")}">${esc(what)}</span></div>
-      ${j.state === "running" ? `<div class="progress"><div style="width:${Math.round(j.progress * 100)}%"></div></div>` : ""}`;
-  }).join("");
-  const body = e.remote
-    ? `<div class="opt"><span class="muted">${tr("Size")}</span>${seg("convH", S.conv.h, [["0", tr("Original")], ["2160", "4K"], ["1440", "1440p"], ["1080", "1080p"], ["720", "720p"]])}</div>
-       <div class="opt"><span class="muted">${tr("Frame rate")}</span>${seg("convFps", S.conv.fps, [["0", tr("Original")], ["60", "60"], ["30", "30"], ["24", "24"]])}</div>
-       <button class="act" data-act="convert" data-id="${e.id}" ${active.length ? "disabled" : ""}>${tr("Make an H.264 copy")}</button>
-       ${rows}`
-    : `<div class="hint">${tr("Upload it to the server first; the server does the converting.")}</div>`;
-  return `<div class="section">
-    <span class="label">${tr("Lighter copy")}</span>
-    <div class="stack">
-      <div class="hint">${tr("H.264 plays on every computer. A smaller size or lower frame rate uses less power. The copy is added to the shared library next to the original.")}</div>
-      ${body}
-    </div>
-  </div>`;
 }
 
 function detailHtml(e) {
   if (!e) {
     return `<div class="nodetail">${tr("Pick a wallpaper to see it here.")}<br>${tr("Drop files anywhere in this window to add them.")}</div>`;
   }
-  const server = !!S.state.config.server;
-  const tx = S.tx[e.id];
-  const busy = S.state.transfers.includes(e.id);
   const live = liveOn(e.id);
   const displays = S.state.displays;
   const t = thumbUrl(e);
   let preview;
-  if (e.local && e.kind === "video") {
+  if (e.kind === "video") {
     preview = `<video data-key="pv-${e.id}-${S.videoViaLoopback ? "l" : "m"}" src="${esc(videoUrl(`${e.id}/${e.file}`))}" ${t ? `poster="${esc(t)}"` : ""} autoplay muted loop playsinline onerror="mediaVideoFailed()"></video>`;
-  } else if (e.local && e.kind === "image") {
+  } else if (e.kind === "image") {
     preview = `<img data-key="pi-${e.id}" src="${esc(mediaUrl(`${e.id}/${e.file}`))}" draggable="false">`;
   } else if (t) {
     preview = `<img data-key="pt-${e.id}" src="${esc(t)}" draggable="false">`;
   } else {
     preview = placeholder(e, `pp-${e.id}`);
   }
-  const where = e.local && e.remote ? tr("This computer and the server") : e.local ? tr("This computer only") : tr("Server only");
-  const pct = tx && tx.total ? Math.round((100 * tx.done) / tx.total) : 0;
   const type = e.kind === "web" ? tr("HTML page") : kindLabel(e) === "GIF" ? tr("Animated GIF") : e.kind === "video" ? tr("Video") : tr("Image");
   const video = [e.codec ? codecName(e.codec) : null, e.fps ? `${Math.round(e.fps * 100) / 100} fps` : null].filter(Boolean).join(" · ");
   const rot = inRotation(e.id);
@@ -549,38 +392,23 @@ function detailHtml(e) {
       ${video ? `<dt>${tr("Video")}</dt><dd>${esc(video)}</dd>` : ""}
       <dt>${tr("File")}</dt><dd>${fmtSize(e.size)}</dd>
       <dt>${tr("Added")}</dt><dd>${fmtDate(e.added)}</dd>
-      <dt>${tr("Stored")}</dt><dd>${where}</dd>
       ${live.length ? `<dt>${tr("Showing")}</dt><dd>${live.map((d) => esc(d.name)).join(", ")}</dd>` : ""}
     </dl>
-    ${cantPlayHere(e) ? `<div class="warn">${tr("Windows can't play {codec} video. Make an H.264 copy below and use that here.", { codec: codecName(e.codec) })}</div>` : ""}
+    ${cantPlayHere(e) ? `<div class="warn">${tr("Windows can't play {codec} video. Convert it to H.264 (HandBrake works) and add that instead.", { codec: codecName(e.codec) })}</div>` : ""}
 
     <div class="section">
       <span class="label">${tr("Wallpaper")}</span>
       <div class="stack">
-        <button class="act primary" data-act="setAll" data-id="${e.id}" ${busy ? "disabled" : ""}><span>${displays.length > 1 ? tr("Set on all displays") : tr("Set as wallpaper")}</span></button>
-        ${displays.length > 1 ? `<div class="row">${displays.map((d) => `<button class="act" data-act="setOn" data-id="${e.id}" data-display="${esc(d.key)}" ${busy ? "disabled" : ""}>${esc(tr("Only {name}", { name: d.name }))}</button>`).join("")}</div>` : ""}
+        <button class="act primary" data-act="setAll" data-id="${e.id}"><span>${displays.length > 1 ? tr("Set on all displays") : tr("Set as wallpaper")}</span></button>
+        ${displays.length > 1 ? `<div class="row">${displays.map((d) => `<button class="act" data-act="setOn" data-id="${e.id}" data-display="${esc(d.key)}">${esc(tr("Only {name}", { name: d.name }))}</button>`).join("")}</div>` : ""}
         <button class="act ${rot ? "on" : ""}" data-act="rotation" data-id="${e.id}">${ICON.cycle} ${rot ? tr("In rotation (click to remove)") : tr("Add to rotation")}</button>
-        ${!e.local ? `<div class="hint">${tr("It downloads to this computer first, then plays from disk.")}</div>` : ""}
       </div>
     </div>
-
-    ${server ? `<div class="section">
-      <span class="label">${tr("Shared library")}</span>
-      <div class="stack">
-        ${busy ? `<div class="progress"><div style="width:${pct}%"></div></div><div class="hint">${tx?.dir === "up" ? tr("Uploading…") : tr("Downloading…")} ${pct}%</div>` : ""}
-        ${!busy && e.local && !e.remote ? `<button class="act" data-act="upload" data-id="${e.id}">${ICON.cloud} ${tr("Upload to the server")}</button>` : ""}
-        ${!busy && !e.local && e.remote ? `<button class="act" data-act="download" data-id="${e.id}">${ICON.computer} ${tr("Download to this computer")}</button>` : ""}
-        ${!busy && e.local && e.remote ? `<div class="hint">${tr("Synced with the server.")}</div>` : ""}
-      </div>
-    </div>` : ""}
-
-    ${convertHtml(e)}
 
     <div class="section">
       <span class="label">${tr("Remove")}</span>
       <div class="stack">
-        ${e.local ? `<button class="act danger" data-act="removeLocal" data-id="${e.id}" ${busy ? "disabled" : ""}>${tr("Remove from this computer")}</button>` : ""}
-        ${e.remote ? `<button class="act danger" data-act="removeRemote" data-id="${e.id}" ${busy ? "disabled" : ""}>${tr("Delete from the server")}</button>` : ""}
+        <button class="act danger" data-act="remove" data-id="${e.id}">${tr("Remove from the library")}</button>
       </div>
     </div>
   </div>`;
@@ -589,18 +417,16 @@ function detailHtml(e) {
 function renderLibrary() {
   const all = entries();
   const q = S.query.trim().toLowerCase();
-  const match = { all: () => true, local: (e) => e.local, remote: (e) => e.remote, rotation: (e) => inRotation(e.id) };
+  const match = { all: () => true, rotation: (e) => inRotation(e.id) };
   const counts = Object.fromEntries(Object.entries(match).map(([k, f]) => [k, all.filter(f).length]));
   const shown = all.filter((e) => (match[S.filter] ?? match.all)(e) && (!q || e.name.toLowerCase().includes(q)));
   const sel = all.find((e) => e.id === S.sel) ?? null;
-  const server = !!S.state.config.server;
-  const filters = [["all", tr("All")], ["local", tr("This computer")], ...(server ? [["remote", tr("On the server")]] : []), ...(counts.rotation ? [["rotation", tr("Rotation")]] : [])];
+  const filters = [["all", tr("All")], ...(counts.rotation ? [["rotation", tr("Rotation")]] : [])];
 
   let body;
   if (!all.length) {
     body = `<div class="empty"><h2>${tr("Your library is empty")}</h2>
       ${tr("Drop videos (MP4, WebM, MOV), images, GIFs or HTML wallpapers anywhere in this window.")}
-      ${server ? "" : `<br>${tr("To share a library between your computers, add a server in Settings.")}`}
       <div class="acts"><button class="act primary" data-act="pick" data-folder="0">${ICON.plus}<span>${tr("Add files")}</span></button>
       <button class="act" data-act="pick" data-folder="1">${ICON.folder} ${tr("Add an HTML folder")}</button></div></div>`;
   } else if (!shown.length) {
@@ -615,7 +441,6 @@ function renderLibrary() {
         <div class="filters">${filters.map(([k, t]) => `<button class="filter ${S.filter === k ? "on" : ""}" data-act="filter" data-f="${k}">${t}<span class="n">${counts[k]}</span></button>`).join("")}</div>
         <input id="search" class="search" placeholder="${esc(tr("Search"))}" value="${esc(S.query)}" spellcheck="false">
         <span class="spacer"></span>
-        ${S.remoteError ? `<span class="err" title="${esc(S.remoteError)}">${tr("Server offline")}</span>` : ""}
         <button class="act" data-act="pick" data-folder="0">${ICON.plus} ${tr("Add files")}</button>
         <button class="act" data-act="pick" data-folder="1">${ICON.folder} ${tr("Add HTML folder")}</button>
       </div>
@@ -671,8 +496,6 @@ const row = (what, hint, control) =>
 function renderSettings() {
   const c = S.state.config;
   const r = c.rotation;
-  const draft = S.serverDraft ?? c.server;
-  const st = S.serverStatus ?? (c.server ? (S.remoteError ? { ok: false, text: S.remoteError } : S.remote ? { ok: true, text: connectedText() } : null) : null);
   const bar = tr("taskbar");
   const poolHint = r.pool.length
     ? tr("Rotates through the {n} wallpapers marked for rotation in the Library.", { n: r.pool.length })
@@ -681,16 +504,6 @@ function renderSettings() {
   const langs = [["", tr("System")], ["en", "English"], ["es", "Español"], ["de", "Deutsch"], ["zh-Hans", "简体中文"]];
 
   return `<div class="page" data-key="p-settings"><div class="scroll"><div class="narrow">
-    <div class="set-sec">
-      <span class="label">${tr("Shared library")}</span>
-      <div class="set-row">
-        <input id="addr" class="addr mono" placeholder="https://server.your-tailnet.ts.net:8448" value="${esc(draft)}" spellcheck="false">
-        <button class="act primary" data-act="connect"><span>${c.server && draft === c.server ? tr("Check") : tr("Connect")}</span></button>
-        ${c.server ? `<button class="act" data-act="disconnect">${tr("Turn off")}</button>` : ""}
-      </div>
-      <p class="hint">${st ? `<span class="${st.ok ? "ok" : "err"}">${esc(st.text)}</span><br>` : ""}${tr("The address of your Backdrop server. Open the same address in a browser to see the library and upload from any device.")}</p>
-    </div>
-
     <div class="set-sec">
       <span class="label">${tr("Playback")}</span>
       ${row(tr("Fit"), tr("How wallpapers that don't match the screen's shape are scaled."),
@@ -730,8 +543,7 @@ function renderSettings() {
       ${row(tr("Start at login"), tr("Starts in the {tray} without opening this window.", { tray: trayName() }), offOn("autostart", S.state.autostart))}
       <div class="set-row"><div class="what">${tr("Library folder")}<div class="hint mono">${esc(S.state.libraryDir)}</div></div>
         <button class="act" data-act="openDir">${tr("Open")}</button></div>
-      ${c.server ? row(tr("Free up space"), tr("Removes this computer's copies of wallpapers that are also on the server and not showing. They download again when picked."), `<button class="act" data-act="freeSpace">${tr("Free up")}</button>`) : ""}
-      ${row(tr("Reset settings"), tr("Keeps your library and server address."), `<button class="act danger" data-act="reset">${tr("Reset")}</button>`)}
+      ${row(tr("Reset settings"), tr("Keeps your library."), `<button class="act danger" data-act="reset">${tr("Reset")}</button>`)}
       <p class="hint">${tr("Backdrop {version}. Closing this window keeps wallpapers running; quit from the {tray} icon.", { version: esc(S.state.version), tray: trayName() })}</p>
     </div>
   </div></div></div>`;
@@ -753,19 +565,9 @@ function setLang(lang) {
 }
 
 listen("state", (e) => {
-  const hadServer = S.state?.config.server;
   S.state = e.payload;
   setLang(S.state.lang);
-  if (S.state.config.server !== hadServer) refreshRemote();
   queueThumbs();
-  render();
-});
-
-listen("transfer", (e) => {
-  const t = e.payload;
-  S.tx[t.id] = t;
-  if (t.state === "error") toast(t.error || tr("Transfer failed"), true);
-  if (t.state !== "active") setTimeout(() => { if (S.tx[t.id] === t) { delete S.tx[t.id]; render(); } }, 400);
   render();
 });
 
@@ -779,9 +581,6 @@ listen("tauri://drag-drop", async (e) => {
   importResult(await call("import_paths", { paths }));
 });
 
-window.addEventListener("focus", () => { if (S.state?.config.server) refreshRemote(); });
-setInterval(() => { if (S.state?.config.server && document.visibilityState === "visible") refreshRemote(); }, 60000);
-
 (async () => {
   S.state = await invoke("get_state");
   document.body.classList.add("os-" + S.state.platform);
@@ -789,5 +588,4 @@ setInterval(() => { if (S.state?.config.server && document.visibilityState === "
   translateStatic();
   render();
   queueThumbs();
-  refreshRemote();
 })();

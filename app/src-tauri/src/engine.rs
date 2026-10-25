@@ -4,7 +4,7 @@
 
 use crate::config::Fit;
 use crate::{log, platform, Core};
-use backdrop_common::{Item, Kind};
+use crate::common::{Item, Kind};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;

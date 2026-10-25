@@ -66,7 +66,7 @@ pub fn resolve(root: &Path, url_path: &str) -> Option<PathBuf> {
     let rel = decoded.trim_start_matches('/');
     let mut parts = rel.split('/');
     let id = parts.next()?;
-    if !backdrop_common::valid_id(id) {
+    if !crate::common::valid_id(id) {
         return None;
     }
     let mut path = root.join(id);

@@ -1,18 +1,18 @@
 mod commands;
+mod common;
 mod config;
 mod engine;
 mod library;
 mod loopback;
 mod media;
 mod platform;
-mod remote;
 mod rotation;
 
 use config::Config;
 use engine::{DisplayView, PlayerParams};
 use library::{ItemView, Library};
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -41,7 +41,7 @@ pub fn log(msg: impl std::fmt::Display) {
         let _ = std::fs::rename(path, path.with_extension("log.old"));
     }
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(f, "{} {msg}", backdrop_common::now());
+        let _ = writeln!(f, "{} {msg}", common::now());
     }
 }
 
@@ -65,8 +65,6 @@ pub struct Core {
     pub displays: Mutex<Vec<DisplayView>>,
     /// Window label -> what that player should show.
     pub players: Mutex<HashMap<String, PlayerParams>>,
-    /// Item ids with an upload or download running.
-    pub transfers: Mutex<HashSet<String>>,
     /// Base URL of the loopback server the player falls back to for video.
     pub loopback: Option<String>,
     /// When the wallpaper last rotated (or the interval was changed).
@@ -138,7 +136,6 @@ pub struct StateView {
     library_dir: String,
     autostart: bool,
     version: &'static str,
-    transfers: Vec<String>,
     loopback: Option<String>,
     /// The language the UI should use (see `ui_language`).
     lang: &'static str,
@@ -149,15 +146,6 @@ impl Core {
     pub fn poke(&self) {
         if let Some(tx) = self.engine.lock().unwrap().as_ref() {
             let _ = tx.send(());
-        }
-    }
-
-    pub fn server(&self) -> Result<String, String> {
-        let s = self.config.lock().unwrap().server.clone();
-        if s.is_empty() {
-            Err("no shared library set up (Settings)".into())
-        } else {
-            Ok(s)
         }
     }
 
@@ -196,7 +184,6 @@ impl Core {
             library_dir,
             autostart: self.app.autolaunch().is_enabled().unwrap_or(false),
             version: env!("CARGO_PKG_VERSION"),
-            transfers: self.transfers.lock().unwrap().iter().cloned().collect(),
             loopback: self.loopback.clone(),
         }
     }
@@ -307,7 +294,6 @@ pub fn run() {
                 manual_pause: AtomicBool::new(false),
                 displays: Mutex::new(vec![]),
                 players: Mutex::new(HashMap::new()),
-                transfers: Mutex::new(HashSet::new()),
                 loopback,
                 rotated_at: Mutex::new(Instant::now()),
                 engine: Mutex::new(None),
@@ -329,16 +315,11 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
-            commands::remote_items,
-            commands::test_server,
             commands::import_paths,
             commands::pick_files,
             commands::save_thumb,
             commands::rename_item,
             commands::delete_local,
-            commands::delete_remote,
-            commands::upload,
-            commands::download,
             commands::set_wallpaper,
             commands::clear_wallpaper,
             commands::update_settings,
@@ -350,9 +331,6 @@ pub fn run() {
             commands::set_in_rotation,
             commands::next_wallpaper,
             commands::save_frame,
-            commands::convert_remote,
-            commands::remote_jobs,
-            commands::free_space,
             commands::reset_settings,
         ])
         .build(tauri::generate_context!())
