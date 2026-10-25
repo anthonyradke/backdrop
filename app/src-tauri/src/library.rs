@@ -90,6 +90,16 @@ fn other<E: std::fmt::Display>(e: E) -> io::Error {
 /// Copies a file or wallpaper folder into the library. Blocking; the caller adds the result to the map.
 /// Returns the existing item untouched if the same content is already there.
 pub fn import(root: &Path, src: &Path, existing: &HashMap<String, Item>) -> io::Result<Item> {
+    import_inner(root, src, existing, false)
+}
+
+/// Like `import`, but hard-links a single file instead of copying it when it's on the same drive.
+/// Used for Steam downloads, which Steam replaces rather than edits.
+pub fn import_linked(root: &Path, src: &Path, existing: &HashMap<String, Item>) -> io::Result<Item> {
+    import_inner(root, src, existing, true)
+}
+
+fn import_inner(root: &Path, src: &Path, existing: &HashMap<String, Item>, link: bool) -> io::Result<Item> {
     let file_name = src.file_name().and_then(|n| n.to_str()).unwrap_or("wallpaper").to_string();
     let staging = root.join(format!(".import-{}-{}", std::process::id(), common::now()));
     let _ = std::fs::remove_dir_all(&staging);
@@ -123,7 +133,7 @@ pub fn import(root: &Path, src: &Path, existing: &HashMap<String, Item>) -> io::
         std::fs::create_dir_all(&dir)?;
         if source.starts_with(&staging) {
             std::fs::rename(&source, dir.join(&file))?;
-        } else {
+        } else if !(link && std::fs::hard_link(&source, dir.join(&file)).is_ok()) {
             std::fs::copy(&source, dir.join(&file))?;
         }
         if kind == Kind::Web {
@@ -145,6 +155,7 @@ pub fn import(root: &Path, src: &Path, existing: &HashMap<String, Item>) -> io::
             height: None,
             added: common::now(),
             tags: vec![],
+            workshop: None,
         };
         write_meta(&dir, &item)?;
         Ok(item)

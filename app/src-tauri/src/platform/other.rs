@@ -44,3 +44,9 @@ pub fn focused(_app: &AppHandle, _displays: &[Display]) -> HashSet<String> {
 pub fn cleanup(_app: &AppHandle) {}
 
 pub fn after_close(_app: &AppHandle) {}
+
+/// Steam's install folder, if there is one.
+pub fn steam_dir() -> Option<std::path::PathBuf> {
+    let home = std::path::PathBuf::from(std::env::var_os("HOME")?);
+    [".steam/steam", ".local/share/Steam"].iter().map(|p| home.join(p)).find(|p| p.is_dir())
+}

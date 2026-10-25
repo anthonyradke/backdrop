@@ -357,3 +357,28 @@ pub fn cleanup(app: &AppHandle) {
     }
     refresh_desktop();
 }
+
+/// Steam's install folder, from the registry (HKCU\\Software\\Valve\\Steam\\SteamPath).
+pub fn steam_dir() -> Option<std::path::PathBuf> {
+    use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_SZ};
+    let mut buf = [0u16; 1024];
+    let mut len = (buf.len() * 2) as u32;
+    let err = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            w!("Software\\Valve\\Steam"),
+            w!("SteamPath"),
+            RRF_RT_REG_SZ,
+            None,
+            Some(buf.as_mut_ptr().cast()),
+            Some(&mut len),
+        )
+    };
+    let path = if err.is_ok() {
+        let n = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+        std::path::PathBuf::from(String::from_utf16_lossy(&buf[..n]))
+    } else {
+        std::path::PathBuf::from(r"C:\Program Files (x86)\Steam")
+    };
+    path.is_dir().then_some(path)
+}

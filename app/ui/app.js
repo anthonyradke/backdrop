@@ -16,6 +16,8 @@ const S = {
   state: null, // StateView from Rust
   thumbVer: {}, // id -> cache buster after a new thumbnail
   videoViaLoopback: false,
+  // Workshop tab. view: discover | steam (what Steam already downloaded)
+  ws: { view: "discover", sort: "week", genre: "", kind: "video", search: "", page: 1, items: null, more: false, loading: false, error: null, sel: null, seq: 0 },
 };
 
 // ---------- helpers ----------
@@ -216,7 +218,37 @@ const setting = (patch) => call("update_settings", { patch });
 const on = (el) => el.dataset.v === "1";
 
 const actions = {
-  tab: (el) => { S.tab = el.dataset.tab; render(); },
+  tab: (el) => {
+    S.tab = el.dataset.tab;
+    render();
+    if (S.tab === "workshop" && !S.ws.items) wsLoad();
+  },
+  wsView: (el) => { S.ws.view = el.dataset.v; S.ws.sel = null; wsLoad(); },
+  wsSort: (el) => { S.ws.sort = el.dataset.v; wsLoad(); },
+  wsKind: (el) => { S.ws.kind = el.dataset.v; wsLoad(); },
+  wsMore: () => wsLoad(true),
+  wsRetry: () => wsLoad(),
+  wsSelect: (el) => { S.ws.sel = S.ws.sel === el.dataset.id ? null : el.dataset.id; render(); },
+  wsSubscribe: (el) => call("workshop_subscribe", { id: el.dataset.id }, tr("Opened in Steam. Subscribe there; Backdrop adds it once Steam has downloaded it.")),
+  wsOpen: (el) => call("workshop_open", { id: el.dataset.id }),
+  wsAdd: async (el) => {
+    el.disabled = true;
+    toast(tr("Adding…"));
+    try {
+      S.sel = await call("workshop_add", { id: el.dataset.id }, tr("Added to your library"));
+    } finally {
+      el.disabled = false;
+    }
+  },
+  wsHide: async (el) => {
+    const creator = el.dataset.creator || null;
+    await call("workshop_hide", { id: el.dataset.id, creator }, creator ? tr("Hid everything by this creator") : tr("Hidden"));
+    S.ws.items = (S.ws.items ?? []).filter((i) => (creator ? i.creator !== creator : i.id !== el.dataset.id));
+    if (!S.ws.items.some((i) => i.id === S.ws.sel)) S.ws.sel = null;
+    render();
+  },
+  wsUnhide: () => call("workshop_unhide_all", {}, tr("Hidden wallpapers will show again")),
+  wsShow: (el) => { S.tab = "library"; S.filter = "all"; S.query = ""; S.sel = el.dataset.item; render(); },
   filter: (el) => { S.filter = el.dataset.f; render(); },
   pick: async (el) => importResult(await call("pick_files", { folder: el.dataset.folder === "1" })),
   select: (el) => { S.sel = S.sel === el.dataset.id ? null : el.dataset.id; render(); },
@@ -275,6 +307,10 @@ document.addEventListener("click", (ev) => {
   if (fn) Promise.resolve(fn(el)).catch(() => {});
 });
 
+document.addEventListener("change", (ev) => {
+  if (ev.target.id === "ws-genre") { S.ws.genre = ev.target.value; wsLoad(); }
+});
+
 document.addEventListener("input", (ev) => {
   if (ev.target.id === "search") { S.query = ev.target.value; render(); }
   if (ev.target.id === "volume") {
@@ -285,7 +321,10 @@ document.addEventListener("input", (ev) => {
 });
 
 document.addEventListener("keydown", (ev) => {
-  if (ev.target.classList?.contains("name-in")) {
+  if (ev.target.id === "ws-search" && ev.key === "Enter") {
+    S.ws.search = ev.target.value;
+    wsLoad();
+  } else if (ev.target.classList?.contains("name-in")) {
     if (ev.key === "Enter") ev.target.blur();
     if (ev.key === "Escape") { ev.target.value = ev.target.dataset.orig; ev.target.blur(); }
   } else if (ev.key === "Escape" && S.sel) { S.sel = null; render(); }
@@ -324,7 +363,7 @@ function translateStatic() {
 }
 
 function renderTitle() {
-  const tabs = [["library", tr("Library")], ["displays", tr("Displays")], ["settings", tr("Settings")]];
+  const tabs = [["library", tr("Library")], ["workshop", tr("Workshop")], ["displays", tr("Displays")], ["settings", tr("Settings")]];
   morph($("#tabs"), tabs.map(([k, t]) => `<button class="nav-tab ${S.tab === k ? "on" : ""}" data-act="tab" data-tab="${k}">${t}</button>`).join(""));
   const ds = S.state.displays;
   const anyPlaying = ds.some((d) => d.status === "playing");
@@ -450,6 +489,162 @@ function renderLibrary() {
   </div>`;
 }
 
+// ---------- workshop ----------
+// Wallpaper Engine's Steam Workshop, minus anime (the filtering is in workshop.rs). Steam does the
+// downloading; Backdrop imports what it downloads.
+
+async function wsLoad(more = false) {
+  const w = S.ws;
+  const seq = ++w.seq;
+  w.page = more ? w.page + 1 : 1;
+  if (!more) { w.items = null; w.more = false; }
+  w.loading = true;
+  w.error = null;
+  render();
+  try {
+    let items = [], hasMore = false;
+    if (w.view === "steam") {
+      items = await invoke("workshop_subscribed");
+    } else {
+      // The filters can leave a page nearly empty, so keep going until there's a screenful.
+      for (let tries = 0; tries < 4; tries++) {
+        const r = await invoke("workshop_browse", { query: { sort: w.sort, genre: w.genre, kind: w.kind, search: w.search, page: w.page } });
+        if (seq !== w.seq) return;
+        items.push(...r.items);
+        hasMore = r.more;
+        if (!hasMore || items.length >= 12) break;
+        w.page++;
+      }
+    }
+    if (seq !== w.seq) return;
+    const seen = new Set((more ? w.items ?? [] : []).map((i) => i.id));
+    w.items = [...(more ? w.items ?? [] : []), ...items.filter((i) => !seen.has(i.id))];
+    w.more = hasMore;
+  } catch (e) {
+    if (seq !== w.seq) return;
+    w.error = String(e);
+    if (more) w.page--;
+  }
+  w.loading = false;
+  render();
+}
+
+// Steam resizes previews on request, which keeps a grid of animated GIFs light.
+const wsThumb = (url) => (url.includes("steamusercontent.com") ? url + "?imw=480&imh=270&ima=fit&impolicy=Letterbox&letterbox=false" : url);
+const wsLib = (id) => S.state.workshop.inLibrary[id];
+const wsPending = (id) => S.state.workshop.pending.includes(id);
+const wsKindLabel = (i) => (i.kind === "web" ? "HTML" : tr("Video"));
+// "3840 x 2160" -> resLabel's "4K"; odd tags like "Ultrawide 3440 x 1440" still parse.
+function wsRes(i) {
+  const m = i.resolution?.match(/(\d+)\s*x\s*(\d+)/);
+  return m ? resLabel({ width: +m[1], height: +m[2] }) : null;
+}
+
+function wsTileHtml(i) {
+  const lib = wsLib(i.id);
+  const res = wsRes(i);
+  const state = lib ? tr("In your library") : wsPending(i.id) ? tr("Waiting for Steam") : "";
+  return `<button class="tile ${S.ws.sel === i.id ? "sel" : ""}" data-act="wsSelect" data-id="${i.id}" data-key="w-${i.id}">
+    <div class="thumb">
+      ${i.preview ? `<img src="${esc(wsThumb(i.preview))}" loading="lazy" draggable="false" onerror="this.remove()">` : `<div class="ph ${i.kind}"><span>${i.kind === "web" ? "&lt;/&gt;" : esc(wsKindLabel(i))}</span></div>`}
+      <span class="badge">${esc(wsKindLabel(i))}</span>
+      ${res ? `<span class="res">${res}</span>` : ""}
+      ${state ? `<span class="livetag"><span class="dot ${lib ? "playing" : "paused"}"></span>${esc(state)}</span>` : ""}
+    </div>
+    <div class="t-name">${esc(i.title)}</div>
+    <div class="t-meta"><span>${[i.genres.map(tr).join(", "), i.size ? fmtSize(i.size) : null].filter(Boolean).join(" · ")}</span></div>
+  </button>`;
+}
+
+function wsDetailHtml(i) {
+  if (!i) {
+    return `<div class="nodetail">${tr("Pick a wallpaper to see it here.")}<br>${tr("Anime wallpapers are left out. If one slips through, hide it.")}</div>`;
+  }
+  const lib = wsLib(i.id);
+  const pending = wsPending(i.id);
+  const inSteam = S.ws.view === "steam";
+  let acts;
+  if (lib) {
+    acts = `<button class="act primary" data-act="wsShow" data-item="${lib}"><span>${tr("Show in the library")}</span></button>`;
+  } else if (inSteam) {
+    acts = `<button class="act primary" data-act="wsAdd" data-id="${i.id}"><span>${tr("Add to library")}</span></button>`;
+  } else {
+    acts = `<button class="act primary" data-act="wsSubscribe" data-id="${i.id}"><span>${pending ? tr("Open in Steam again") : tr("Subscribe in Steam")}</span></button>
+      ${pending ? `<div class="hint">${tr("Backdrop adds it to your library as soon as Steam has downloaded it.")}</div>` : ""}
+      <button class="act" data-act="wsAdd" data-id="${i.id}">${tr("Already downloaded? Add it now")}</button>`;
+  }
+  return `<div data-key="wd-${i.id}">
+    <div class="preview">${i.preview ? `<img data-key="wp-${i.id}" src="${esc(i.preview)}" draggable="false">` : ""}</div>
+    <div class="ws-title">${esc(i.title)}</div>
+    <dl class="facts">
+      <dt>${tr("Type")}</dt><dd>${esc(i.kind === "web" ? tr("HTML page") : tr("Video"))}</dd>
+      ${i.resolution ? `<dt>${tr("Size")}</dt><dd>${esc(i.resolution)}${wsRes(i) ? ` · ${wsRes(i)}` : ""}</dd>` : ""}
+      ${i.size ? `<dt>${tr("File")}</dt><dd>${fmtSize(i.size)}</dd>` : ""}
+      <dt>${tr("Genre")}</dt><dd>${esc(i.genres.map(tr).join(", "))}</dd>
+      <dt>${tr("Subscribers")}</dt><dd>${i.subscriptions.toLocaleString()}</dd>
+    </dl>
+    ${i.description ? `<p class="hint ws-desc">${esc(i.description.replace(/\[[^\]]*\]/g, ""))}</p>` : ""}
+    <div class="section">
+      <span class="label">${tr("Wallpaper")}</span>
+      <div class="stack">
+        ${acts}
+        <button class="act" data-act="wsOpen" data-id="${i.id}">${tr("Open the workshop page")}</button>
+      </div>
+    </div>
+    <div class="section">
+      <span class="label">${tr("Hide")}</span>
+      <div class="stack">
+        <button class="act danger" data-act="wsHide" data-id="${i.id}">${tr("Hide this wallpaper")}</button>
+        ${i.creator ? `<button class="act danger" data-act="wsHide" data-id="${i.id}" data-creator="${esc(i.creator)}">${tr("Hide everything by this creator")}</button>` : ""}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderWorkshop() {
+  const w = S.ws;
+  const discover = w.view === "discover";
+  const items = w.items ?? [];
+  const sel = items.find((i) => i.id === w.sel) ?? null;
+  const views = [["discover", tr("Discover")], ["steam", tr("Downloaded in Steam")]];
+  const genres = [["", tr("All genres")], ...S.state.workshop.genres.map((g) => [g, tr(g)])];
+
+  let body;
+  if (w.error && !items.length) {
+    body = `<div class="empty"><h2>${tr("Couldn't reach Steam")}</h2>${esc(w.error)}
+      <div class="acts"><button class="act primary" data-act="wsRetry"><span>${tr("Try again")}</span></button></div></div>`;
+  } else if (!w.items) {
+    body = `<div class="empty">${tr("Loading…")}</div>`;
+  } else if (!items.length) {
+    body = `<div class="empty">${discover ? tr("Nothing matches.") : tr("Steam hasn't downloaded any video or HTML wallpapers for Wallpaper Engine.")}</div>`;
+  } else {
+    body = `<div class="grid">${items.map(wsTileHtml).join("")}</div>
+      ${w.more || (w.loading && items.length) ? `<div class="ws-more"><button class="act" data-act="wsMore" ${w.loading ? "disabled" : ""}>${w.loading ? tr("Loading…") : tr("Load more")}</button></div>` : ""}`;
+  }
+
+  const note = S.state.workshop.steam ? "" :
+    `<div class="warn ws-warn">${tr("Steam's Wallpaper Engine folder wasn't found. You can browse, but subscribing only downloads anything if Steam is installed and you own Wallpaper Engine (it has to stay installed; it doesn't have to run).")}</div>`;
+
+  return `<div class="page" data-key="p-workshop">
+    <div class="lib-main">
+      <div class="toolbar">
+        <div class="filters">${views.map(([k, t]) => `<button class="filter ${w.view === k ? "on" : ""}" data-act="wsView" data-v="${k}">${t}</button>`).join("")}</div>
+        ${discover ? `<input id="ws-search" class="search" placeholder="${esc(tr("Search, then Enter"))}" value="${esc(w.search)}" spellcheck="false">
+        <span class="spacer"></span>
+        <select id="ws-genre" class="ws-select">${genres.map(([v, t]) => `<option value="${esc(v)}" ${w.genre === v ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>` : `<span class="spacer"></span>`}
+      </div>
+      ${discover ? `<div class="toolbar ws-sub">
+        ${seg("wsSort", w.sort, [["week", tr("Trending")], ["month", tr("Top this month")], ["year", tr("Top this year")], ["allTime", tr("Most subscribed")], ["newest", tr("Newest")]])}
+        <span class="spacer"></span>
+        ${seg("wsKind", w.kind, [["video", tr("Video")], ["web", "HTML"]])}
+      </div>` : ""}
+      ${note}
+      <div class="grid-wrap">${body}</div>
+    </div>
+    <aside class="detail">${wsDetailHtml(sel)}</aside>
+  </div>`;
+}
+
 function renderDisplays() {
   const ds = S.state.displays;
   const byId = new Map(entries().map((e) => [e.id, e]));
@@ -543,6 +738,12 @@ function renderSettings() {
       ${row(tr("Start at login"), tr("Starts in the {tray} without opening this window.", { tray: trayName() }), offOn("autostart", S.state.autostart))}
       <div class="set-row"><div class="what">${tr("Library folder")}<div class="hint mono">${esc(S.state.libraryDir)}</div></div>
         <button class="act" data-act="openDir">${tr("Open")}</button></div>
+      ${(() => {
+        const h = S.state.workshop.hidden;
+        const n = h.items.length + h.creators.length;
+        return n ? row(tr("Hidden in the Workshop"), tr("{n} hidden (single wallpapers and creators).", { n }),
+          `<button class="act" data-act="wsUnhide">${tr("Show again")}</button>`) : "";
+      })()}
       ${row(tr("Reset settings"), tr("Keeps your library."), `<button class="act danger" data-act="reset">${tr("Reset")}</button>`)}
       <p class="hint">${tr("Backdrop {version}. Closing this window keeps wallpapers running; quit from the {tray} icon.", { version: esc(S.state.version), tray: trayName() })}</p>
     </div>
@@ -552,7 +753,7 @@ function renderSettings() {
 function render() {
   if (!S.state) return;
   renderTitle();
-  const html = S.tab === "displays" ? renderDisplays() : S.tab === "settings" ? renderSettings() : renderLibrary();
+  const html = S.tab === "displays" ? renderDisplays() : S.tab === "settings" ? renderSettings() : S.tab === "workshop" ? renderWorkshop() : renderLibrary();
   morph($("#page"), html);
 }
 

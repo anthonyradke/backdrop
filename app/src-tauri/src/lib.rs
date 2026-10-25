@@ -7,6 +7,7 @@ mod loopback;
 mod media;
 mod platform;
 mod rotation;
+mod workshop;
 
 use config::Config;
 use engine::{DisplayView, PlayerParams};
@@ -69,6 +70,8 @@ pub struct Core {
     pub loopback: Option<String>,
     /// When the wallpaper last rotated (or the interval was changed).
     pub rotated_at: Mutex<Instant>,
+    /// Workshop items subscribed from Backdrop that Steam hasn't finished downloading.
+    pub workshop: Mutex<workshop::Store>,
     engine: Mutex<Option<mpsc::Sender<()>>>,
     tray: Mutex<Option<TrayItems>>,
 }
@@ -139,6 +142,20 @@ pub struct StateView {
     loopback: Option<String>,
     /// The language the UI should use (see `ui_language`).
     lang: &'static str,
+    workshop: WorkshopView,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkshopView {
+    /// Steam has a Wallpaper Engine workshop folder on this computer.
+    steam: bool,
+    /// Workshop ids waiting for Steam to download them.
+    pending: Vec<String>,
+    /// Workshop id -> library item id.
+    in_library: HashMap<String, String>,
+    hidden: workshop::Hidden,
+    genres: &'static [&'static str],
 }
 
 impl Core {
@@ -169,11 +186,15 @@ impl Core {
     }
 
     pub fn state_view(&self) -> StateView {
-        let (items, library_dir) = {
+        let (items, library_dir, in_library) = {
             let lib = self.library.lock().unwrap();
-            (lib.views(), lib.root.to_string_lossy().to_string())
+            (lib.views(), lib.root.to_string_lossy().to_string(), workshop::in_library(&lib.items))
         };
         let config = self.config.lock().unwrap().clone();
+        let (pending, hidden) = {
+            let ws = self.workshop.lock().unwrap();
+            (ws.pending().to_vec(), ws.hidden().clone())
+        };
         StateView {
             lang: ui_language(&config.language),
             config,
@@ -185,6 +206,13 @@ impl Core {
             autostart: self.app.autolaunch().is_enabled().unwrap_or(false),
             version: env!("CARGO_PKG_VERSION"),
             loopback: self.loopback.clone(),
+            workshop: WorkshopView {
+                steam: !workshop::content_dirs().is_empty(),
+                pending,
+                hidden,
+                in_library,
+                genres: workshop::GENRES,
+            },
         }
     }
 
@@ -296,6 +324,7 @@ pub fn run() {
                 players: Mutex::new(HashMap::new()),
                 loopback,
                 rotated_at: Mutex::new(Instant::now()),
+                workshop: Mutex::new(workshop::Store::load(data.join("workshop.json"))),
                 engine: Mutex::new(None),
                 tray: Mutex::new(None),
             });
@@ -304,6 +333,7 @@ pub fn run() {
             let tx = engine::spawn(handle.clone());
             *app.state::<Core>().engine.lock().unwrap() = Some(tx);
             rotation::spawn(handle.clone());
+            workshop::spawn(handle.clone());
             if app.state::<Core>().config.lock().unwrap().rotation.on_start {
                 rotation::trigger(&handle, rotation::Why::Start);
             }
@@ -332,6 +362,13 @@ pub fn run() {
             commands::next_wallpaper,
             commands::save_frame,
             commands::reset_settings,
+            commands::workshop_browse,
+            commands::workshop_subscribed,
+            commands::workshop_subscribe,
+            commands::workshop_open,
+            commands::workshop_add,
+            commands::workshop_hide,
+            commands::workshop_unhide_all,
         ])
         .build(tauri::generate_context!())
         .expect("error while building backdrop")

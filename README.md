@@ -28,6 +28,8 @@ The Windows build is about 5 MB installed, from a 2 MB installer.
   battery saver on, and while the screen is locked
 - Resolution badges (4K, 1440p, 1080p) and codec details for each item, with a warning on HEVC and ProRes
   files, which Windows can't play
+- A Workshop tab for browsing video and HTML wallpapers from the Wallpaper Engine Steam Workshop, with
+  anime left out; Steam downloads what you subscribe to and Backdrop adds it to the library
 - Drag-and-drop import; HTML wallpapers can be a folder with an `index.html`, a `.zip` of one, or a single
   `.html` file
 - Interface in English, Spanish, German and Simplified Chinese
@@ -79,6 +81,22 @@ the request path.
 A background task checks the interval every 20 seconds. Picks come from the items marked for rotation, or
 from the whole library when none are marked. The engine treats a gap of more than 30 seconds between ticks as a wake from sleep.
 
+#### Steam Workshop (`workshop.rs`)
+
+Browsing reads the public workshop page for item ids and gets titles, previews and tags from Steam's
+`GetPublishedFileDetails` API, which needs no key. Requests go through the `curl` that ships with
+Windows. Only video and HTML items are shown, since Backdrop can't play Wallpaper Engine scenes.
+
+Anime is filtered in three steps: the query asks for the "Everyone" rating and excludes the genre tags
+that turned out to be mostly anime (or memes) when sampled, items need one of the remaining genres and
+no anime words (English, Chinese or Japanese) in the title or description, and anything that still slips
+through can be hidden by item or by creator.
+
+Workshop files can only be downloaded by someone who owns Wallpaper Engine, so Backdrop doesn't download
+them itself. *Subscribe in Steam* opens the item in the Steam client; once Steam has put it in
+`steamapps/workshop/content/431960/`, Backdrop imports it, hard-linked when it's on the same drive so it
+takes no extra space. The *Downloaded in Steam* view lists earlier subscriptions to add by hand.
+
 #### Item identity
 
 Each item is identified by the first 16 hex characters of its SHA-256 hash, so adding the same file
@@ -124,6 +142,8 @@ cargo test --workspace
 - HTML wallpapers cannot be paused externally. The player posts `{ backdrop: { paused, muted, volume, speed } }`
   to the page; pages that listen for this message can stop their own animation loop.
 - Codec detection reads MP4 and MOV headers only; other formats show no codec.
+- Workshop downloads need Steam and a copy of Wallpaper Engine, which has to stay installed (it doesn't have
+  to run). The anime filter relies on how uploaders tag and title their items, so some still get through.
 
 ## License
 

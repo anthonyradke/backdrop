@@ -162,6 +162,17 @@ main { flex: 1; min-height: 0; display: flex; }
 .warn { margin-top: 14px; padding: 8px 10px; border-left: 2px solid var(--warn); color: var(--warn); font-size: 12px; line-height: 1.5; background: rgba(245, 196, 81, .06); }
 .nodetail { color: var(--dim); margin-top: 40px; text-align: center; line-height: 1.6; }
 
+/* ---------- workshop ---------- */
+
+.ws-sub { padding-top: 0; }
+.ws-sub .seg { justify-content: flex-start; }
+.ws-select { background: var(--panel); border: 0; border-bottom: 1px solid var(--hair-2); padding: 3px 2px; outline: none; color: var(--muted); }
+.ws-select:focus { border-color: var(--v); }
+.ws-warn { margin: 0 24px 10px; }
+.ws-more { display: flex; justify-content: center; padding: 24px 0 0; }
+.ws-title { margin-top: 14px; font-size: 16px; font-weight: 600; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
+.ws-desc { max-height: 7.5em; overflow: hidden; white-space: pre-line; overflow-wrap: anywhere; }
+
 /* ---------- displays ---------- */
 
 .scroll { flex: 1; overflow-y: auto; padding: 26px 32px 40px; }

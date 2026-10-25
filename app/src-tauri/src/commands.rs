@@ -2,12 +2,12 @@
 
 use crate::config::{self, Fit, Order};
 use crate::engine::{read_displays, PlayerParams};
-use crate::{common, library, log, Core, StateView};
+use crate::{common, library, log, workshop, Core, StateView};
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Instant;
-use tauri::{AppHandle, State, WebviewWindow};
+use tauri::{AppHandle, Manager, State, WebviewWindow};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
@@ -344,4 +344,77 @@ pub fn player_init(window: WebviewWindow, core: State<'_, Core>) -> Option<Playe
 #[tauri::command]
 pub fn player_log(window: WebviewWindow, msg: String) {
     log(format!("player {}: {}", window.label(), msg.chars().take(500).collect::<String>()));
+}
+
+/// One page of the Wallpaper Engine workshop, anime left out (see workshop.rs).
+#[tauri::command]
+pub async fn workshop_browse(core: State<'_, Core>, query: workshop::Query) -> Result<workshop::Page, String> {
+    let hidden = core.workshop.lock().unwrap().hidden().clone();
+    tauri::async_runtime::spawn_blocking(move || workshop::browse(&query, &hidden)).await.map_err(|e| e.to_string())?
+}
+
+/// The video and HTML wallpapers Steam has downloaded for Wallpaper Engine.
+#[tauri::command]
+pub async fn workshop_subscribed(core: State<'_, Core>) -> Result<Vec<workshop::WsItem>, String> {
+    let hidden = core.workshop.lock().unwrap().hidden().clone();
+    tauri::async_runtime::spawn_blocking(move || workshop::subscribed(&hidden)).await.map_err(|e| e.to_string())?
+}
+
+/// Opens the item in the Steam client to subscribe; it's imported once Steam has downloaded it.
+#[tauri::command]
+pub fn workshop_subscribe(app: AppHandle, core: State<'_, Core>, id: String) -> Result<(), String> {
+    if !workshop::valid_ws_id(&id) {
+        return Err("bad id".into());
+    }
+    app.opener()
+        .open_url(format!("steam://url/CommunityFilePage/{id}"), None::<&str>)
+        .map_err(|e| format!("couldn't open Steam: {e}"))?;
+    core.workshop.lock().unwrap().add_pending(&id);
+    core.emit_state();
+    Ok(())
+}
+
+/// Opens the item's workshop page in the browser.
+#[tauri::command]
+pub fn workshop_open(app: AppHandle, id: String) -> Result<(), String> {
+    if !workshop::valid_ws_id(&id) {
+        return Err("bad id".into());
+    }
+    app.opener()
+        .open_url(format!("https://steamcommunity.com/sharedfiles/filedetails/?id={id}"), None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
+/// Imports an item Steam has already downloaded. Returns the library item id.
+#[tauri::command]
+pub async fn workshop_add(app: AppHandle, id: String) -> Result<String, String> {
+    if !workshop::valid_ws_id(&id) {
+        return Err("bad id".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let core = app.state::<Core>();
+        let item = workshop::import(&core, &id)?;
+        core.workshop.lock().unwrap().remove_pending(&id);
+        core.emit_state();
+        Ok(item.id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Hides a workshop item from browsing, or with `creator`, everything that creator uploaded.
+#[tauri::command]
+pub fn workshop_hide(core: State<'_, Core>, id: String, creator: Option<String>) -> Result<(), String> {
+    if !workshop::valid_ws_id(&id) || creator.as_deref().is_some_and(|c| !workshop::valid_ws_id(c)) {
+        return Err("bad id".into());
+    }
+    core.workshop.lock().unwrap().hide(&id, creator.as_deref());
+    core.emit_state();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn workshop_unhide_all(core: State<'_, Core>) {
+    core.workshop.lock().unwrap().unhide_all();
+    core.emit_state();
 }

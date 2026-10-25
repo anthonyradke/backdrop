@@ -37,6 +37,9 @@ pub struct Item {
     pub added: i64,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Steam Workshop id, for wallpapers that came from the Wallpaper Engine workshop.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workshop: Option<String>,
 }
 
 pub const VIDEO_EXTS: &[&str] = &["mp4", "m4v", "mov", "webm", "mkv"];
