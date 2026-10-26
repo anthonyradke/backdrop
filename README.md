@@ -41,9 +41,10 @@ Windows 10 or 11 with WebView2 (preinstalled on Windows 11).
 
 ## Installation
 
-Builds are not yet code-signed.
+Prebuilt releases aren't published yet; build the installer as described under
+[Building from source](#building-from-source).
 
-Run `Backdrop_<version>_x64-setup.exe`. SmartScreen warns on first launch; choose
+Run `Backdrop_<version>_x64-setup.exe`. Builds are not code-signed, so SmartScreen warns on first launch; choose
 *More info* > *Run anyway*. The installer is per-user and needs no administrator rights.
 
 ## Architecture
