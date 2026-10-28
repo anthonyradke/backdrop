@@ -719,11 +719,13 @@ function renderDisplays() {
   if (ds.length) {
     const minX = Math.min(...ds.map((d) => d.x)), minY = Math.min(...ds.map((d) => d.y));
     const maxX = Math.max(...ds.map((d) => d.x + d.width)), maxY = Math.max(...ds.map((d) => d.y + d.height));
-    const scale = Math.min(720 / (maxX - minX), 280 / (maxY - minY));
-    map = `<div class="arrangement" style="height:${Math.round((maxY - minY) * scale)}px;width:${Math.round((maxX - minX) * scale)}px">${ds.map((d) => {
+    // Screens are placed in percent so the map grows with the window (CSS caps its size).
+    const w = maxX - minX, h = maxY - minY;
+    const pct = (v, of, px) => `calc(${(v / of * 100).toFixed(3)}% ${px < 0 ? "-" : "+"} ${Math.abs(px)}px)`;
+    map = `<div class="arrangement" style="--ratio:${(w / h).toFixed(4)}">${ds.map((d) => {
       const e = d.item && byId.get(d.item);
       const t = e && posterUrl(e);
-      return `<div class="screen" style="left:${Math.round((d.x - minX) * scale) + 3}px;top:${Math.round((d.y - minY) * scale) + 3}px;width:${Math.round(d.width * scale) - 6}px;height:${Math.round(d.height * scale) - 6}px;${t ? `background-image:url('${t}')` : ""}">
+      return `<div class="screen" style="left:${pct(d.x - minX, w, 3)};top:${pct(d.y - minY, h, 3)};width:${pct(d.width, w, -6)};height:${pct(d.height, h, -6)};${t ? `background-image:url('${t}')` : ""}">
         <span class="pill"><span class="dot ${d.status}"></span>${esc(d.name)}${d.primary ? ` · ${tr("main")}` : ""}</span></div>`;
     }).join("")}</div>`;
   }
@@ -771,7 +773,7 @@ function renderSettings() {
   return `<div class="page" data-key="p-settings">
     <header class="head"><h1>${tr("Settings")}</h1>
       <p>${tr("Backdrop {version}. Closing this window keeps wallpapers running; quit from the {tray} icon.", { version: esc(S.state.version), tray: trayName() })}</p></header>
-    <div class="scroll">
+    <div class="scroll"><div class="secs">
     ${section(tr("Playback"), "", [
       row(tr("Fit"), tr("How wallpapers that don't match the screen's shape are scaled."),
         seg("fit", c.fit, [["cover", tr("Fill")], ["contain", tr("Fit")], ["height", tr("Fit height")], ["stretch", tr("Stretch")], ["center", tr("Center")]])),
@@ -805,7 +807,7 @@ function renderSettings() {
       hidden ? row(tr("Hidden in the Workshop"), tr("{n} hidden (single wallpapers and creators).", { n: hidden }), `<button class="btn sm press" data-act="wsUnhide">${tr("Show again")}</button>`) : "",
       row(tr("Reset settings"), tr("Keeps your library."), `<button class="btn sm danger press" data-act="reset">${tr("Reset")}</button>`),
     ].join(""))}
-    </div>
+    </div></div>
   </div>`;
 }
 
