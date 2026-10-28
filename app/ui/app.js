@@ -816,7 +816,26 @@ function render() {
   // Workshop art is remote (no canvas access), so it keeps the neutral accent.
   applyTint(S.tab === "workshop" ? null : S.tab === "library" ? heroItem() : entries().find((e) => liveOn(e.id).length));
   morph($("#page"), html);
+  syncScroll();
 }
+
+// Scrolling the grid shrinks the hero toward a compact bar so the grid gets the room, and near the
+// bottom of the Workshop the next page loads without a click.
+const HERO_MIN = 230;
+function syncScroll() {
+  const page = $("#page");
+  const wrap = page.querySelector(".grid-wrap");
+  const full = Math.min(560, Math.max(260, innerHeight * 0.52));
+  const range = Math.max(0, full - HERO_MIN);
+  const shrink = wrap && page.querySelector(".hero:not(.welcome)") ? Math.min(wrap.scrollTop, range) : 0;
+  page.style.setProperty("--shrink", `${shrink}px`);
+  page.style.setProperty("--c", range ? (shrink / range).toFixed(3) : 0);
+  const w = S.ws;
+  if (wrap && S.tab === "workshop" && w.items?.length && w.more && !w.loading && !w.error
+      && wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight < 500) wsLoad(true);
+}
+document.addEventListener("scroll", (e) => { if (e.target.classList?.contains("grid-wrap")) syncScroll(); }, true);
+addEventListener("resize", syncScroll);
 
 // ---------- events ----------
 

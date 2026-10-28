@@ -123,7 +123,10 @@ main { position: absolute; inset: 0; display: flex; }
 
 /* ---------- hero ---------- */
 
-.hero { position: relative; flex: none; height: clamp(260px, 52vh, 560px); overflow: hidden; background: #111114; }
+.hero { position: relative; flex: none; height: calc(clamp(260px, 52vh, 560px) - var(--shrink, 0px)); overflow: hidden; background: #111114; }
+/* Scrolling the grid shrinks the hero (app.js sets --shrink and --c, 0 to 1); the description folds away first. */
+.hero .hero-desc, .hero .warn { max-height: calc((1 - var(--c, 0)) * 48px); opacity: calc(1 - var(--c, 0) * 2); }
+.hero .warn { overflow: hidden; margin-top: calc((1 - var(--c, 0)) * 10px); padding-block: calc((1 - var(--c, 0)) * 7px); }
 .hero-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; transition: opacity 260ms var(--ease-out); }
 @starting-style { .hero-img { opacity: 0; } }
 .hero .ph { position: absolute; inset: 0; }
@@ -147,7 +150,7 @@ main { position: absolute; inset: 0; display: flex; }
 .name-in:hover { background: rgba(255, 255, 255, .05); box-shadow: 0 0 0 6px rgba(255, 255, 255, .05); }
 .name-in:focus { background: rgba(255, 255, 255, .08); box-shadow: 0 0 0 6px rgba(255, 255, 255, .08); text-overflow: clip; }
 .hero-meta { color: rgba(255, 255, 255, .64); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.hero-desc { margin-top: 6px; color: rgba(255, 255, 255, .6); max-width: 640px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
+.hero-desc { margin-top: calc((1 - var(--c, 0)) * 6px); color: rgba(255, 255, 255, .6); max-width: 640px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
 .hero-acts { display: flex; align-items: center; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
 .hero-acts .btn:not(.pri):not(.on), .where { background: rgba(255, 255, 255, .13); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .09); }
 .where { display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px; }
@@ -183,7 +186,9 @@ main { position: absolute; inset: 0; display: flex; }
 .search input { flex: 1; min-width: 0; border: 0; outline: none; background: none; color: #fff; }
 .search input::placeholder { color: var(--faint); }
 .search:focus-within { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .25); }
-.select { height: 30px; padding: 0 10px; border-radius: 999px; border: 0; outline: none; background: var(--raise); color: var(--muted); }
+.select { height: 30px; padding: 0 30px 0 12px; border-radius: 999px; border: 0; outline: none; color: var(--muted); appearance: none; cursor: pointer;
+          background: var(--raise) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23a1a1aa' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4.5 6.5 8 10l3.5-3.5'/%3E%3C/svg%3E") no-repeat right 11px center / 14px; }
+.select:focus-visible { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .25); }
 .select option { background: #1a1a1f; color: var(--text); }
 
 .grid-wrap { flex: 1; overflow-y: auto; padding: 6px var(--pad) 32px; }
