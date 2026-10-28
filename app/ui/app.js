@@ -317,6 +317,7 @@ const actions = {
   language: (el) => setting({ language: el.dataset.v }),
   autostart: (el) => call("set_autostart", { on: on(el) }),
   openDir: () => call("open_library_dir"),
+  tour: () => startTour(),
   reset: async () => {
     if (!confirm(tr("Put every setting back to its default? Your library stays; wallpapers are cleared from the displays."))) return;
     await call("reset_settings", {}, tr("Settings reset"));
@@ -824,6 +825,7 @@ function renderSettings() {
       row(tr("Language"), "", seg("language", c.language, langs)),
       row(tr("Start at login"), tr("Starts in the {tray} without opening this window.", { tray: trayName() }), offOn("autostart", S.state.autostart)),
       row(tr("Library folder"), `<span class="mono">${esc(S.state.libraryDir)}</span>`, `<button class="btn sm press" data-act="openDir">${tr("Open")}</button>`),
+      row(tr("Quick tour"), tr("A 20-second look around the app."), `<button class="btn sm press" data-act="tour">${tr("Show")}</button>`),
       hidden ? row(tr("Hidden in the Workshop"), tr("{n} hidden (single wallpapers and creators).", { n: hidden }), `<button class="btn sm press" data-act="wsUnhide">${tr("Show again")}</button>`) : "",
       row(tr("Reset settings"), tr("Keeps your library."), `<button class="btn sm danger press" data-act="reset">${tr("Reset")}</button>`),
     ].join(""))}
@@ -891,4 +893,5 @@ listen("tauri://drag-drop", async (e) => {
   translateStatic();
   render();
   queueThumbs();
+  maybeTour();
 })();

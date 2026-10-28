@@ -283,6 +283,25 @@ input[type=range] { width: 140px; accent-color: var(--tint); }
   .sec { grid-template-columns: minmax(0, 1fr); }
   .sec > :first-child { margin-bottom: 6px; }
 }
+
+/* First-run tour (tour.js): the spot's huge shadow dims everything but the thing it points at. */
+#tour { position: fixed; inset: 0; z-index: 30; display: none; }
+#tour.on { display: block; }
+.tour-spot { position: fixed; pointer-events: none; border-radius: 12px;
+             box-shadow: 0 0 0 2px rgba(255, 255, 255, .6), 0 0 0 9999px rgba(5, 5, 7, .72);
+             transition: left 320ms var(--ease-out), top 320ms var(--ease-out), width 320ms var(--ease-out), height 320ms var(--ease-out), border-radius 320ms var(--ease-out); }
+.tour-spot.none { box-shadow: 0 0 0 9999px rgba(5, 5, 7, .72); }
+.tour-card { position: fixed; width: 320px; max-width: calc(100vw - 24px); padding: 18px 18px 14px; border-radius: 16px; background: #17171b;
+             box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .09), 0 24px 60px -16px rgba(0, 0, 0, .8);
+             transition: left 320ms var(--ease-out), top 320ms var(--ease-out); }
+.tour-card h2 { margin: 0 0 6px; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+.tour-card p { margin: 0; color: var(--muted); line-height: 1.5; }
+.tour-foot { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
+.tour-foot .link { margin-right: 4px; }
+.tour-dots { flex: 1; display: flex; gap: 5px; }
+.tour-dots i { width: 6px; height: 6px; border-radius: 3px; background: var(--faint); transition: width 200ms var(--ease-out), background-color 200ms ease; }
+.tour-dots i.on { width: 14px; background: #fff; }
+
 @media (max-width: 900px) { :root { --pad: 22px; } .sec, .drow { grid-template-columns: 150px minmax(0, 1fr); } .drow > :last-child { grid-column: 2; } }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-property: opacity, background-color, color !important; }
