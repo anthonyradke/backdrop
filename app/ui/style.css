@@ -250,6 +250,24 @@ input[type=range] { width: 140px; accent-color: var(--tint); }
 
 /* ---------- overlays ---------- */
 
+/* Workshop preview popup. It sits under the title bar (z-index 5) so the window stays draggable and closable. */
+.modal { position: fixed; inset: 0; z-index: 4; display: flex; align-items: center; justify-content: center; padding: 56px var(--pad) 24px; }
+.modal .scrim { position: absolute; inset: 0; background: rgba(5, 5, 7, .82); transition: opacity 200ms ease; }
+@starting-style { .modal .scrim { opacity: 0; } }
+/* Width follows the window's height so the 16:9 preview fills its box and the details still fit under it. */
+.dialog { position: relative; display: flex; flex-direction: column; width: min(1120px, 100%, max(480px, (100vh - 320px) * 16 / 9)); max-height: 100%; border-radius: 16px; overflow: hidden;
+          background: #111114; box-shadow: 0 0 0 1px rgba(255, 255, 255, .08), 0 40px 90px -30px rgba(0, 0, 0, .9);
+          transition: opacity 220ms var(--ease-out), transform 220ms var(--ease-out); }
+@starting-style { .dialog { opacity: 0; transform: scale(.97) translateY(6px); } }
+.dlg-media { position: relative; flex: 0 1 auto; min-height: 120px; aspect-ratio: 16 / 9; background: #000; }
+.dlg-media img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; }
+.dlg-media .ph { position: absolute; inset: 0; }
+.dlg-x { position: absolute; top: 12px; right: 12px; background: rgba(10, 10, 12, .6) !important; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .12); }
+.dlg-info { flex: none; padding: 18px 24px 22px; }
+.dlg-info .hero-title { text-shadow: none; }
+.dlg-desc { margin-top: 10px; max-height: 4.4em; overflow-y: auto; color: rgba(255, 255, 255, .62); max-width: 760px; white-space: pre-line; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
+.dlg-info .hero-acts .sp { flex: 1; }
+
 #drop { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(9, 9, 11, .86); z-index: 10; }
 #drop.on { display: flex; }
 #drop div { font-size: 18px; font-weight: 600; padding: 14px 22px; border-radius: 999px; background: var(--tint); color: var(--tint-ink); }

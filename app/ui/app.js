@@ -19,7 +19,7 @@ const S = {
   thumbVer: {}, // id -> cache buster after a new thumbnail
   videoViaLoopback: false,
   // Workshop tab. view: discover | steam (what Steam already downloaded)
-  ws: { view: "discover", sort: "week", genre: "", kind: "video", search: "", page: 1, items: null, more: false, loading: false, error: null, sel: null, seq: 0 },
+  ws: { view: "discover", sort: "week", genre: "", kind: "video", search: "", page: 1, items: null, more: false, loading: false, error: null, sel: null, open: false, seq: 0 },
 };
 
 // ---------- helpers ----------
@@ -68,6 +68,7 @@ const ICON = {
   external: '<svg viewBox="0 0 16 16"><path d="M9 2.8h4.2V7M13 3 7.6 8.4"/><path d="M11.5 9.6v2.6c0 .7-.6 1.2-1.2 1.2H4c-.7 0-1.2-.5-1.2-1.2V5.9c0-.7.5-1.2 1.2-1.2h2.6"/></svg>',
   hide: '<svg viewBox="0 0 16 16"><path d="M2.5 2.5l11 11"/><path d="M6.6 4a6.8 6.8 0 0 1 7.2 4 7.4 7.4 0 0 1-1.6 2.2M10 11.6a6.8 6.8 0 0 1-7.8-3.6 7.6 7.6 0 0 1 2-2.6"/></svg>',
   hideUser: '<svg viewBox="0 0 16 16"><circle cx="6.5" cy="5.5" r="2.6"/><path d="M1.8 13.5c.5-2.4 2.4-3.8 4.7-3.8 1 0 1.9.3 2.6.8M10.5 10.5l3.5 3.5M14 10.5 10.5 14"/></svg>',
+  close: '<svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
   library: '<svg viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="4.6" height="4.6" rx="1.2"/><rect x="8.9" y="2.5" width="4.6" height="4.6" rx="1.2"/><rect x="2.5" y="8.9" width="4.6" height="4.6" rx="1.2"/><rect x="8.9" y="8.9" width="4.6" height="4.6" rx="1.2"/></svg>',
 };
 
@@ -240,12 +241,13 @@ const actions = {
     render();
     if (S.tab === "workshop" && !S.ws.items) wsLoad();
   },
-  wsView: (el) => { S.ws.view = el.dataset.v; S.ws.sel = null; wsLoad(); },
+  wsView: (el) => { S.ws.view = el.dataset.v; S.ws.sel = null; S.ws.open = false; wsLoad(); },
   wsSort: (el) => { S.ws.sort = el.dataset.v; wsLoad(); },
   wsKind: (el) => { S.ws.kind = el.dataset.v; wsLoad(); },
   wsMore: () => wsLoad(true),
   wsRetry: () => wsLoad(),
-  wsSelect: (el) => { S.ws.sel = el.dataset.id; render(); },
+  wsSelect: (el) => { S.ws.sel = el.dataset.id; S.ws.open = true; render(); },
+  wsClose: () => { S.ws.open = false; render(); },
   wsSubscribe: async (el) => {
     el.disabled = true;
     try {
@@ -272,11 +274,11 @@ const actions = {
     const creator = el.dataset.creator || null;
     await call("workshop_hide", { id: el.dataset.id, creator }, creator ? tr("Hid everything by this creator") : tr("Hidden"));
     S.ws.items = (S.ws.items ?? []).filter((i) => (creator ? i.creator !== creator : i.id !== el.dataset.id));
-    if (!S.ws.items.some((i) => i.id === S.ws.sel)) S.ws.sel = null;
+    if (!S.ws.items.some((i) => i.id === S.ws.sel)) { S.ws.sel = null; S.ws.open = false; }
     render();
   },
   wsUnhide: () => call("workshop_unhide_all", {}, tr("Hidden wallpapers will show again")),
-  wsShow: (el) => { S.tab = "library"; S.filter = "all"; S.query = ""; S.sel = el.dataset.item; S.preview = null; render(); },
+  wsShow: (el) => { S.ws.open = false; S.tab = "library"; S.filter = "all"; S.query = ""; S.sel = el.dataset.item; S.preview = null; render(); },
   filter: (el) => { S.filter = el.dataset.f; render(); },
   pick: async (el) => importResult(await call("pick_files", { folder: el.dataset.folder === "1" })),
   select: (el) => { S.sel = el.dataset.id; S.preview = null; render(); },
@@ -356,6 +358,9 @@ document.addEventListener("keydown", (ev) => {
   } else if (ev.target.classList?.contains("name-in")) {
     if (ev.key === "Enter") ev.target.blur();
     if (ev.key === "Escape") { ev.target.value = ev.target.dataset.orig; ev.target.blur(); }
+  } else if (ev.key === "Escape" && S.tab === "workshop" && S.ws.open) {
+    S.ws.open = false;
+    render();
   } else if (ev.key === "Escape" && S.sel) { S.sel = null; S.preview = null; render(); }
 });
 
@@ -637,15 +642,18 @@ function wsTileHtml(i, sel) {
   </button>`;
 }
 
-function wsHeroHtml(i) {
+// What the grid area says when there's nothing to show yet.
+function wsEmptyHtml() {
   const w = S.ws;
-  if (!i) {
-    const body = w.error
-      ? `<div class="hero-title">${tr("Couldn't reach Steam")}</div><p>${esc(w.error)}</p>
-         <div class="hero-acts"><button class="btn pri big press" data-act="wsRetry">${tr("Try again")}</button></div>`
-      : `<div class="hero-title">${tr("Workshop")}</div><p>${w.items ? (w.view === "discover" ? tr("Nothing matches.") : tr("Steam hasn't downloaded any video or HTML wallpapers for Wallpaper Engine.")) : tr("Loading…")}</p>`;
-    return `<section class="hero welcome" data-key="ws-hero-none"><div class="hero-info">${body}</div></section>`;
-  }
+  if (w.error) return `<div class="empty"><h2>${tr("Couldn't reach Steam")}</h2>${esc(w.error)}
+    <div class="acts"><button class="btn pri press" data-act="wsRetry">${tr("Try again")}</button></div></div>`;
+  return `<div class="empty">${w.items ? (w.view === "discover" ? tr("Nothing matches.") : tr("Steam hasn't downloaded any video or HTML wallpapers for Wallpaper Engine.")) : tr("Loading…")}</div>`;
+}
+
+// Clicking a tile opens this popup: the whole preview, uncropped, with the details and actions under it.
+// The tile's small image sits underneath so something shows while the large one loads.
+function wsModalHtml(i) {
+  const w = S.ws;
   const lib = wsLib(i.id);
   const pending = wsPending(i.id);
   const icon = (title, act, svg, extra = "") => `<button class="btn round press" data-act="${act}" data-id="${i.id}" ${extra} title="${esc(title)}" aria-label="${esc(title)}">${svg}</button>`;
@@ -663,27 +671,37 @@ function wsHeroHtml(i) {
     tr("{n} subscribers", { n: i.subscriptions.toLocaleString() }),
   ].filter(Boolean).join("  ·  ");
   const kick = lib ? tr("In your library") : pending ? wsWaiting(i.id) : i.genres.map(tr).join(", ");
-  return `<section class="hero" data-key="ws-hero">
-    ${i.preview ? `<img class="hero-img" data-key="whi-${i.id}" src="${esc(wsThumb(i.preview, 1280))}" draggable="false" onerror="this.remove()">` : ""}
-    <div class="hero-info" data-key="whn-${i.id}">
-      <div class="kick">${lib || pending ? `<span class="dot ${lib ? "playing" : "paused"}"></span>` : ""}${esc(kick)}</div>
-      <div class="hero-title" title="${esc(i.title)}">${esc(i.title)}</div>
-      <div class="hero-meta">${esc(meta)}</div>
-      ${i.description ? `<div class="hero-desc">${esc(i.description.replace(/\[[^\]]*\]/g, ""))}</div>` : ""}
-      <div class="hero-acts">${acts}
-        ${icon(tr("Open the workshop page"), "wsOpen", ICON.external)}
-        ${icon(tr("Hide this wallpaper"), "wsHide", ICON.hide)}
-        ${i.creator ? icon(tr("Hide everything by this creator"), "wsHide", ICON.hideUser, `data-creator="${esc(i.creator)}"`) : ""}
+  const desc = i.description.replace(/\[[^\]]*\]/g, "").trim();
+  return `<div class="modal" data-key="ws-modal">
+    <div class="scrim" data-act="wsClose"></div>
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="${esc(i.title)}" data-key="wm-${i.id}">
+      <div class="dlg-media">
+        ${i.preview ? `<img class="lo" src="${esc(wsThumb(i.preview))}" draggable="false" onerror="this.remove()">
+          <img class="hi" src="${esc(wsThumb(i.preview, 1920))}" draggable="false" onerror="this.remove()">`
+          : `<div class="ph ${i.kind}"><span>${i.kind === "web" ? "&lt;/&gt;" : esc(wsKindLabel(i))}</span></div>`}
+        <button class="btn round press dlg-x" data-act="wsClose" title="${esc(tr("Close"))}" aria-label="${esc(tr("Close"))}">${ICON.close}</button>
+      </div>
+      <div class="dlg-info">
+        <div class="kick">${lib || pending ? `<span class="dot ${lib ? "playing" : "paused"}"></span>` : ""}${esc(kick)}</div>
+        <div class="hero-title" title="${esc(i.title)}">${esc(i.title)}</div>
+        <div class="hero-meta">${esc(meta)}</div>
+        ${desc ? `<div class="dlg-desc">${esc(desc)}</div>` : ""}
+        <div class="hero-acts">${acts}
+          <span class="sp"></span>
+          ${icon(tr("Open the workshop page"), "wsOpen", ICON.external)}
+          ${icon(tr("Hide this wallpaper"), "wsHide", ICON.hide)}
+          ${i.creator ? icon(tr("Hide everything by this creator"), "wsHide", ICON.hideUser, `data-creator="${esc(i.creator)}"`) : ""}
+        </div>
       </div>
     </div>
-  </section>`;
+  </div>`;
 }
 
 function renderWorkshop() {
   const w = S.ws;
   const discover = w.view === "discover";
   const items = w.items ?? [];
-  const sel = items.find((i) => i.id === w.sel) ?? items[0] ?? null;
+  const sel = items.find((i) => i.id === w.sel) ?? null;
   const views = [["discover", tr("Discover")], ["steam", tr("Downloaded in Steam")]];
   const genres = [["", tr("All genres")], ...S.state.workshop.genres.map((g) => [g, tr(g)])];
   const sorts = [["week", tr("Trending")], ["month", tr("Top this month")], ["year", tr("Top this year")], ["allTime", tr("Most subscribed")], ["newest", tr("Newest")]];
@@ -691,12 +709,13 @@ function renderWorkshop() {
   const grid = items.length
     ? `<div class="grid">${items.map((i) => wsTileHtml(i, i.id === sel?.id)).join("")}</div>
       ${w.more || (w.loading && items.length) ? `<div class="more"><button class="btn sm press" data-act="wsMore" ${w.loading ? "disabled" : ""}>${w.loading ? tr("Loading…") : tr("Load more")}</button></div>` : ""}`
-    : "";
+    : wsEmptyHtml();
   const note = S.state.workshop.steam ? "" :
     `<div class="warn ws-warn">${tr("Steam's Wallpaper Engine folder wasn't found. You can browse, but subscribing only downloads anything if Steam is installed and you own Wallpaper Engine (it has to stay installed; it doesn't have to run).")}</div>`;
 
   return `<div class="page" data-key="p-workshop">
-    ${wsHeroHtml(sel)}
+    <header class="head"><h1>${tr("Workshop")}</h1>
+      <p>${tr("Video and HTML wallpapers from the Wallpaper Engine Steam Workshop. Click one to preview it.")}</p></header>
     <section class="shelf">
       <div class="bar">
         ${views.map(([k, t]) => `<button class="chip press ${w.view === k ? "on" : ""}" data-act="wsView" data-v="${k}">${t}</button>`).join("")}
@@ -709,6 +728,7 @@ function renderWorkshop() {
       ${note}
       <div class="grid-wrap">${grid}</div>
     </section>
+    ${sel && w.open ? wsModalHtml(sel) : ""}
   </div>`;
 }
 
