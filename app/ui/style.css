@@ -186,7 +186,7 @@ main { position: absolute; inset: 0; display: flex; }
 .select { height: 30px; padding: 0 10px; border-radius: 999px; border: 0; outline: none; background: var(--raise); color: var(--muted); }
 .select option { background: #1a1a1f; color: var(--text); }
 
-.grid-wrap { flex: 1; overflow-y: auto; padding: 0 var(--pad) 32px; }
+.grid-wrap { flex: 1; overflow-y: auto; padding: 6px var(--pad) 32px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: 18px 14px; }
 .tile { text-align: left; display: block; min-width: 0; }
 .thumb { position: relative; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; background: #17171b; transition: transform 160ms var(--ease-out); }
