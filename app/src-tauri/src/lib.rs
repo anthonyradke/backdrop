@@ -8,6 +8,7 @@ mod media;
 mod platform;
 mod rotation;
 mod steamapi;
+mod update;
 mod workshop;
 
 use config::Config;
@@ -78,6 +79,10 @@ pub struct Core {
 }
 
 struct TrayItems {
+    menu: Menu<Wry>,
+    /// "Update to Backdrop x.y.z", in the menu only while an update is waiting.
+    update: MenuItem<Wry>,
+    update_shown: bool,
     open: MenuItem<Wry>,
     pause: CheckMenuItem<Wry>,
     next: MenuItem<Wry>,
@@ -106,6 +111,40 @@ pub fn ui_language(chosen: &str) -> &'static str {
     sys_locale::get_locales().find_map(|l| pick(&l)).unwrap_or("en")
 }
 
+/// Tray menu text for the update item; `{v}` is the new version.
+fn tray_update_text(lang: &str) -> &'static str {
+    match lang {
+        "es" => "Actualizar a Backdrop {v}",
+        "de" => "Auf Backdrop {v} aktualisieren",
+        "zh-Hans" => "更新到 Backdrop {v}",
+        _ => "Update to Backdrop {v}",
+    }
+}
+
+/// Adds or removes the tray's update item to match what the last check found.
+pub fn refresh_tray_update(app: &AppHandle) {
+    let available = update::status(app).available;
+    let core = app.state::<Core>();
+    let lang = ui_language(&core.config.lock().unwrap().language);
+    // Menu calls wait on the main thread, which may itself be waiting on this lock (tray clicks).
+    let Some((menu, item, shown)) =
+        core.tray.lock().unwrap().as_ref().map(|t| (t.menu.clone(), t.update.clone(), t.update_shown))
+    else {
+        return;
+    };
+    if let Some(v) = &available {
+        let _ = item.set_text(tray_update_text(lang).replace("{v}", v));
+    }
+    if available.is_some() != shown {
+        let done = if shown { menu.remove(&item) } else { menu.prepend(&item) };
+        if done.is_ok() {
+            if let Some(t) = core.tray.lock().unwrap().as_mut() {
+                t.update_shown = !shown;
+            }
+        }
+    }
+}
+
 /// Tray menu text: open, pause, next, quit.
 fn tray_text(lang: &str) -> [&'static str; 4] {
     match lang {
@@ -127,6 +166,7 @@ pub fn translate_tray(app: &AppHandle) {
         let _ = t.next.set_text(next);
         let _ = t.quit.set_text(quit);
     };
+    refresh_tray_update(app);
 }
 
 #[derive(Serialize, Clone)]
@@ -258,8 +298,10 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let pause = CheckMenuItem::with_id(app, "pause", t_pause, true, false, None::<&str>)?;
     let next = MenuItem::with_id(app, "next", t_next, true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", t_quit, true, None::<&str>)?;
+    let update = MenuItem::with_id(app, "update", "", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &pause, &next, &PredefinedMenuItem::separator(app)?, &quit])?;
-    *app.state::<Core>().tray.lock().unwrap() = Some(TrayItems { open, pause, next, quit });
+    *app.state::<Core>().tray.lock().unwrap() =
+        Some(TrayItems { menu: menu.clone(), update, update_shown: false, open, pause, next, quit });
 
     let icon = app.default_window_icon().cloned().expect("bundle icon");
 
@@ -275,6 +317,12 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                 core.set_paused(now);
             }
             "next" => rotation::trigger(app, rotation::Why::Manual),
+            "update" => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = update::install(&app).await;
+                });
+            }
             "quit" => app.exit(0),
             _ => {}
         })
@@ -303,6 +351,7 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--hidden"]),
@@ -337,6 +386,7 @@ pub fn run() {
                 tray: Mutex::new(None),
             });
 
+            update::init(&handle);
             build_tray(&handle)?;
             let tx = engine::spawn(handle.clone());
             *app.state::<Core>().engine.lock().unwrap() = Some(tx);
@@ -378,6 +428,9 @@ pub fn run() {
             commands::workshop_add,
             commands::workshop_hide,
             commands::workshop_unhide_all,
+            commands::update_state,
+            commands::check_update,
+            commands::install_update,
         ])
         .build(tauri::generate_context!())
         .expect("error while building backdrop")

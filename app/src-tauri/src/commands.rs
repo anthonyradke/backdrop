@@ -2,7 +2,7 @@
 
 use crate::config::{self, Fit, Order};
 use crate::engine::{read_displays, PlayerParams};
-use crate::{common, library, log, steamapi, workshop, Core, StateView};
+use crate::{common, library, log, steamapi, update, workshop, Core, StateView};
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -446,4 +446,20 @@ pub fn workshop_hide(core: State<'_, Core>, id: String, creator: Option<String>)
 pub fn workshop_unhide_all(core: State<'_, Core>) {
     core.workshop.lock().unwrap().unhide_all();
     core.emit_state();
+}
+
+#[tauri::command]
+pub fn update_state(app: AppHandle) -> update::Status {
+    update::status(&app)
+}
+
+#[tauri::command]
+pub async fn check_update(app: AppHandle) -> Result<update::Status, String> {
+    update::check(&app).await;
+    Ok(update::status(&app))
+}
+
+#[tauri::command]
+pub async fn install_update(app: AppHandle) -> Result<(), String> {
+    update::install(&app).await
 }

@@ -16,6 +16,7 @@ const S = {
   preview: null, // item id whose video plays in the hero
   tint: {}, // id -> [accent, ink] sampled from its thumbnail, or null for grey art
   state: null, // StateView from Rust
+  upd: null, // update::Status from Rust
   thumbVer: {}, // id -> cache buster after a new thumbnail
   videoViaLoopback: false,
   // Workshop tab. view: discover | steam (what Steam already downloaded)
@@ -69,6 +70,7 @@ const ICON = {
   hide: '<svg viewBox="0 0 16 16"><path d="M2.5 2.5l11 11"/><path d="M6.6 4a6.8 6.8 0 0 1 7.2 4 7.4 7.4 0 0 1-1.6 2.2M10 11.6a6.8 6.8 0 0 1-7.8-3.6 7.6 7.6 0 0 1 2-2.6"/></svg>',
   hideUser: '<svg viewBox="0 0 16 16"><circle cx="6.5" cy="5.5" r="2.6"/><path d="M1.8 13.5c.5-2.4 2.4-3.8 4.7-3.8 1 0 1.9.3 2.6.8M10.5 10.5l3.5 3.5M14 10.5 10.5 14"/></svg>',
   close: '<svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
+  update: '<svg viewBox="0 0 16 16"><path d="M13.2 8A5.2 5.2 0 1 1 11.6 4.3"/><path d="M12.2 1.9v2.8H9.4"/></svg>',
   library: '<svg viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="4.6" height="4.6" rx="1.2"/><rect x="8.9" y="2.5" width="4.6" height="4.6" rx="1.2"/><rect x="2.5" y="8.9" width="4.6" height="4.6" rx="1.2"/><rect x="8.9" y="8.9" width="4.6" height="4.6" rx="1.2"/></svg>',
 };
 
@@ -236,6 +238,26 @@ const setting = (patch) => call("update_settings", { patch });
 const on = (el) => el.dataset.v === "1";
 
 const actions = {
+  // The title bar's update button: installs a waiting update, otherwise checks GitHub now.
+  update: async () => {
+    const u = S.upd;
+    if (!u || u.progress != null || u.checking) return;
+    if (u.available) {
+      try {
+        await invoke("install_update");
+      } catch (e) {
+        toast(tr("Update failed: {e}", { e: String(e) }), true);
+      }
+      return;
+    }
+    S.upd = { ...u, checking: true };
+    render();
+    S.upd = await invoke("check_update");
+    render();
+    if (S.upd.available) toast(tr("Backdrop {v} is available", { v: S.upd.available }));
+    else if (S.upd.error) toast(tr("Couldn't check for updates: {e}", { e: S.upd.error }), true);
+    else toast(tr("Backdrop is up to date"));
+  },
   tab: (el) => {
     S.tab = el.dataset.tab;
     render();
@@ -410,6 +432,37 @@ function renderTitle() {
   else if (ds.some((d) => d.status === "image")) { dot = "image"; text = tr("Still image"); }
   else text = tr("No wallpaper");
   morph($("#live"), `<span class="dot ${dot}"></span>${esc(text)}`);
+  renderUpdate();
+}
+
+// Always in the title bar: a quiet icon that checks for updates, which turns into a labelled
+// button when a new version is waiting, and shows the download while it installs.
+function renderUpdate() {
+  const el = $("#upd"), u = S.upd;
+  if (!u) { el.hidden = true; return; }
+  el.hidden = false;
+  let cls = "", title, html = ICON.update;
+  if (u.progress != null) {
+    cls = "busy";
+    title = tr("Backdrop restarts on its own when it's done.");
+    html = `${ICON.update}<span class="tnum">${esc(tr("Updating {p}%", { p: u.progress }))}</span>`;
+  } else if (u.available) {
+    cls = "ready";
+    title = tr("Update to Backdrop {v} and restart. Your library and settings stay.", { v: u.available }) + (u.notes ? `
+
+${u.notes}` : "");
+    html = `${ICON.download}<span>${esc(tr("Update"))}</span>`;
+  } else if (u.checking) {
+    cls = "spin";
+    title = tr("Checking for updates…");
+  } else {
+    title = tr("Check for updates") + ` (Backdrop ${u.current})`;
+  }
+  el.className = `tb-upd press ${cls}`;
+  el.disabled = u.progress != null;
+  el.title = title;
+  el.setAttribute("aria-label", title);
+  morph(el, html);
 }
 
 function placeholder(e, key = "") {
@@ -790,6 +843,13 @@ function renderSettings() {
   const speeds = [["0.5", "0.5×"], ["0.75", "0.75×"], ["1", "1×"], ["1.25", "1.25×"], ["1.5", "1.5×"], ["2", "2×"]];
   const langs = [["", tr("System")], ["en", "English"], ["es", "Español"], ["de", "Deutsch"], ["zh-Hans", "简体中文"]];
   const hidden = S.state.workshop.hidden.items.length + S.state.workshop.hidden.creators.length;
+  const u = S.upd;
+  const updHint = u?.available ? tr("Backdrop {v} is available. Your library and settings stay.", { v: esc(u.available) })
+    : u?.checked && !u.error ? tr("Up to date. Backdrop checks GitHub when it starts and every few hours.")
+    : tr("Backdrop checks GitHub when it starts and every few hours.");
+  const updBtn = u?.progress != null ? `<button class="btn sm press" disabled>${tr("Updating {p}%", { p: u.progress })}</button>`
+    : u?.available ? `<button class="btn sm pri press" data-act="update">${tr("Update and restart")}</button>`
+    : `<button class="btn sm press" data-act="update" ${u?.checking ? "disabled" : ""}>${u?.checking ? tr("Checking…") : tr("Check now")}</button>`;
 
   return `<div class="page" data-key="p-settings">
     <header class="head"><h1>${tr("Settings")}</h1>
@@ -822,6 +882,7 @@ function renderSettings() {
       row(tr("Pause when locked"), "", offOn("pauseLocked", c.pauseLocked)),
     ].join(""))}
     ${section(tr("App"), "", [
+      u ? row(tr("Updates"), updHint, updBtn) : "",
       row(tr("Language"), "", seg("language", c.language, langs)),
       row(tr("Start at login"), tr("Starts in the {tray} without opening this window.", { tray: trayName() }), offOn("autostart", S.state.autostart)),
       row(tr("Library folder"), `<span class="mono">${esc(S.state.libraryDir)}</span>`, `<button class="btn sm press" data-act="openDir">${tr("Open")}</button>`),
@@ -876,6 +937,11 @@ listen("state", (e) => {
   render();
 });
 
+listen("update", (e) => {
+  S.upd = e.payload;
+  render();
+});
+
 listen("tauri://drag-enter", () => $("#drop").classList.add("on"));
 listen("tauri://drag-leave", () => $("#drop").classList.remove("on"));
 listen("tauri://drag-drop", async (e) => {
@@ -887,7 +953,7 @@ listen("tauri://drag-drop", async (e) => {
 });
 
 (async () => {
-  S.state = await invoke("get_state");
+  [S.state, S.upd] = await Promise.all([invoke("get_state"), invoke("update_state")]);
   document.body.classList.add("os-" + S.state.platform);
   LANG = S.state.lang;
   translateStatic();

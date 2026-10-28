@@ -1,0 +1,82 @@
+# Pushing a tag like v0.2.0 builds the signed installer on Windows and publishes it as a GitHub
+# release with the latest.json that installed copies of Backdrop check for updates.
+# Running it by hand (Actions > release > Run workflow) only builds and keeps the installer as a
+# workflow artifact.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install the Tauri CLI
+        shell: pwsh
+        run: |
+          if (-not (Get-Command cargo-tauri -ErrorAction SilentlyContinue)) { cargo install tauri-cli --version "^2" --locked }
+
+      - name: Check the tag matches the app version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $version = (Get-Content app/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          if ("v$version" -ne "${{ github.ref_name }}") { throw "tag ${{ github.ref_name }} doesn't match tauri.conf.json version $version" }
+
+      - name: Test
+        run: cargo test --workspace
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cd app/src-tauri
+          cargo tauri build
+
+      - name: Keep the installer
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        uses: actions/upload-artifact@v4
+        with:
+          name: backdrop-installer
+          path: target/release/bundle/nsis/*-setup.exe
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag.TrimStart("v")
+          $exe = Get-Item "target/release/bundle/nsis/Backdrop_${version}_x64-setup.exe"
+          $sig = Get-Content "$($exe.FullName).sig" -Raw
+          # Release notes are the annotated tag's message.
+          git fetch --force origin "refs/tags/${tag}:refs/tags/${tag}"
+          $notes = (git tag -l --format="%(contents)" $tag | Out-String).Trim()
+          if (-not $notes) { $notes = "Backdrop $version" }
+          @{
+            version  = $version
+            notes    = $notes
+            pub_date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            platforms = @{
+              "windows-x86_64" = @{
+                signature = $sig.Trim()
+                url       = "https://github.com/${{ github.repository }}/releases/download/$tag/$($exe.Name)"
+              }
+            }
+          } | ConvertTo-Json -Depth 4 | Set-Content latest.json -Encoding utf8NoBOM
+          Set-Content notes.md $notes -Encoding utf8NoBOM
+          gh release create $tag $exe.FullName latest.json --title "Backdrop $version" --notes-file notes.md

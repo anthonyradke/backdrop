@@ -41,11 +41,16 @@ Windows 10 or 11 with WebView2 (preinstalled on Windows 11).
 
 ## Installation
 
-Prebuilt releases aren't published yet; build the installer as described under
-[Building from source](#building-from-source).
-
-Run `Backdrop_<version>_x64-setup.exe`. Builds are not code-signed, so SmartScreen warns on first launch; choose
+Download `Backdrop_<version>_x64-setup.exe` from [Releases](https://github.com/anthonyradke/backdrop/releases)
+and run it. Builds are not code-signed, so SmartScreen warns on first launch; choose
 *More info* > *Run anyway*. The installer is per-user and needs no administrator rights.
+
+### Updates
+
+Backdrop checks this repo's releases when it starts and every six hours. The round button next to the status
+pill in the title bar checks on demand; when a new version exists it turns green and reads *Update*, and the
+tray menu gets an *Update to Backdrop x.y.z* item. Either one downloads the installer, verifies its
+signature, installs it and restarts Backdrop. The library and settings are kept.
 
 ## Architecture
 
@@ -123,6 +128,16 @@ cargo install --locked cargo-xwin tauri-cli
 sudo apt install nsis lld clang
 scripts/build-windows.sh        # output: dist/Backdrop_<version>_x64-setup.exe
 ```
+
+The installer is signed for the updater, so a release build needs the signing key in
+`TAURI_SIGNING_PRIVATE_KEY` and its password in `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+
+### Releases
+
+Releases are built by GitHub Actions (`.github/workflows/release.yml`). `scripts/release.sh X.Y.Z` takes
+the list in `UNRELEASED.md` as the release notes, bumps the version, tags and pushes; CI builds, signs and
+publishes the installer with the `latest.json` the in-app updater reads, and the update button shows the
+notes.
 
 ### Development
 

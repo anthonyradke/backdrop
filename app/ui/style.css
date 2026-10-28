@@ -110,6 +110,21 @@ svg.fill { fill: currentColor; stroke: none; }
 .tb-live { display: flex; align-items: center; gap: 8px; height: 28px; margin: 8px 8px 0 0; padding: 0 12px; border-radius: 999px; white-space: nowrap;
            font-size: 12px; color: rgba(255, 255, 255, .88); background: rgba(16, 16, 20, .6); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08); }
 @media (hover: hover) and (pointer: fine) { .tb-live:hover { background: rgba(30, 30, 36, .8); } }
+.tb-upd { display: flex; align-items: center; justify-content: center; gap: 7px; height: 28px; min-width: 28px; margin: 8px 6px 0 0; padding: 0 7px;
+          border-radius: 999px; white-space: nowrap; font-size: 12px; color: rgba(255, 255, 255, .7);
+          background: rgba(16, 16, 20, .6); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08); }
+.tb-upd[hidden] { display: none; }
+.tb-upd svg { width: 14px; height: 14px; stroke-width: 1.5; }
+.tb-upd.ready, .tb-upd.busy { padding: 0 12px 0 10px; }
+.tb-upd.ready { color: #062014; font-weight: 600; background: var(--good); box-shadow: 0 0 0 3px rgba(61, 220, 151, .18); }
+.tb-upd.busy { color: rgba(255, 255, 255, .88); cursor: default; }
+.tb-upd.spin svg, .tb-upd.busy svg { animation: upd-spin 900ms linear infinite; }
+@keyframes upd-spin { to { transform: rotate(360deg); } }
+@media (hover: hover) and (pointer: fine) {
+  .tb-upd:not(.ready):not(:disabled):hover { color: #fff; background: rgba(30, 30, 36, .8); }
+  .tb-upd.ready:hover { filter: brightness(1.08); }
+}
+@media (prefers-reduced-motion: reduce) { .tb-upd svg { animation: none !important; } }
 
 .win-ctl { display: none; }
 .os-windows .win-ctl { display: flex; height: 40px; }
