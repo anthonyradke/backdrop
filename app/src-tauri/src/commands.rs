@@ -2,7 +2,7 @@
 
 use crate::config::{self, Fit, Order};
 use crate::engine::{read_displays, PlayerParams};
-use crate::{common, library, log, workshop, Core, StateView};
+use crate::{common, library, log, steamapi, workshop, Core, StateView};
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -80,27 +80,35 @@ pub async fn pick_files(app: AppHandle, core: State<'_, Core>, folder: bool) -> 
     Ok(import_all(&core, picked).await)
 }
 
-/// Stores a thumbnail the library window rendered (JPEG as base64 or a data URL) and, when known,
-/// the media's pixel size.
+/// Stores a thumbnail the library window rendered (JPEG as base64 or a data URL), optionally the
+/// larger poster the library's hero shows, and, when known, the media's pixel size.
 #[tauri::command]
 pub fn save_thumb(
     core: State<'_, Core>,
     id: String,
     data: String,
+    poster: Option<String>,
     width: Option<u32>,
     height: Option<u32>,
 ) -> Result<(), String> {
     if !common::valid_id(&id) {
         return Err("bad id".into());
     }
-    let b64 = data.split_once(',').map(|(_, b)| b).unwrap_or(&data);
-    let jpeg = base64::engine::general_purpose::STANDARD.decode(b64).map_err(|e| e.to_string())?;
+    let decode = |data: &str| {
+        let b64 = data.split_once(',').map(|(_, b)| b).unwrap_or(data);
+        base64::engine::general_purpose::STANDARD.decode(b64).map_err(|e| e.to_string())
+    };
+    let jpeg = decode(&data)?;
+    let poster = poster.as_deref().map(decode).transpose()?;
     let mut lib = core.library.lock().unwrap();
     let dir = lib.dir(&id);
     if !dir.is_dir() {
         return Err("not in the library".into());
     }
     std::fs::write(dir.join("thumb.jpg"), jpeg).map_err(|e| e.to_string())?;
+    if let Some(poster) = poster {
+        std::fs::write(dir.join("poster.jpg"), poster).map_err(|e| e.to_string())?;
+    }
     if let Some(item) = lib.items.get_mut(&id) {
         if item.width.is_none() && width.is_some() {
             item.width = width;
@@ -360,18 +368,39 @@ pub async fn workshop_subscribed(core: State<'_, Core>) -> Result<Vec<workshop::
     tauri::async_runtime::spawn_blocking(move || workshop::subscribed(&hidden)).await.map_err(|e| e.to_string())?
 }
 
-/// Opens the item in the Steam client to subscribe; it's imported once Steam has downloaded it.
+/// Subscribes through Steam in the background, or, when that can't work (Steam not running, no
+/// Wallpaper Engine), opens the item in the Steam client to subscribe there. Either way it's
+/// imported once Steam has downloaded it. Returns "background" or "steam".
 #[tauri::command]
-pub fn workshop_subscribe(app: AppHandle, core: State<'_, Core>, id: String) -> Result<(), String> {
+pub async fn workshop_subscribe(app: AppHandle, id: String) -> Result<&'static str, String> {
     if !workshop::valid_ws_id(&id) {
         return Err("bad id".into());
     }
-    app.opener()
-        .open_url(format!("steam://url/CommunityFilePage/{id}"), None::<&str>)
-        .map_err(|e| format!("couldn't open Steam: {e}"))?;
+    let (a, i) = (app.clone(), id.clone());
+    let direct = tauri::async_runtime::spawn_blocking(move || steamapi::download(&a, &i)).await.map_err(|e| e.to_string())?;
+    let how = match direct {
+        Ok(()) => "background",
+        Err(e) => {
+            log(format!("workshop item {id}: can't download in the background ({e}); opening Steam"));
+            app.opener()
+                .open_url(format!("steam://url/CommunityFilePage/{id}"), None::<&str>)
+                .map_err(|e| format!("couldn't open Steam: {e}"))?;
+            "steam"
+        }
+    };
+    let core = app.state::<Core>();
     core.workshop.lock().unwrap().add_pending(&id);
     core.emit_state();
-    Ok(())
+    Ok(how)
+}
+
+/// Opens the item in the Steam client.
+#[tauri::command]
+pub fn workshop_open_steam(app: AppHandle, id: String) -> Result<(), String> {
+    if !workshop::valid_ws_id(&id) {
+        return Err("bad id".into());
+    }
+    app.opener().open_url(format!("steam://url/CommunityFilePage/{id}"), None::<&str>).map_err(|e| format!("couldn't open Steam: {e}"))
 }
 
 /// Opens the item's workshop page in the browser.

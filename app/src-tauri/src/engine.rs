@@ -85,6 +85,8 @@ struct Engine {
     last_tick: std::time::SystemTime,
     /// Display key -> when creating its window last failed (retried after a pause).
     failed: HashMap<String, Instant>,
+    /// Players rebuilt after Explorer destroyed them, for unique window labels.
+    respawns: u32,
 }
 
 pub fn spawn(app: AppHandle) -> mpsc::Sender<()> {
@@ -102,6 +104,7 @@ pub fn spawn(app: AppHandle) -> mpsc::Sender<()> {
                 battery_checked: None,
                 last_tick: std::time::SystemTime::now(),
                 failed: HashMap::new(),
+                respawns: 0,
             };
             loop {
                 match rx.recv_timeout(Duration::from_secs(1)) {
@@ -369,8 +372,18 @@ impl Engine {
     /// Makes sure the display has a live player showing `params`. Returns false if there's no
     /// window (creation failed).
     fn ensure_player(&mut self, core: &Core, d: &Display, params: PlayerParams) -> bool {
-        let label = label_for(&d.key);
-        let existing = self.app.get_webview_window(&label);
+        let mut label = self.slots.get(&d.key).map(|s| s.label.clone()).unwrap_or_else(|| label_for(&d.key));
+        let mut existing = self.app.get_webview_window(&label);
+        if let Some(win) = existing.take_if(|w| !platform::alive(w)) {
+            // Destroyed with Explorer's desktop window when Explorer restarted. Tauri may keep the
+            // label taken, so the new window gets a fresh one.
+            log(format!("player on {} was destroyed (Explorer restarted?); making a new one", d.name));
+            let _ = win.destroy();
+            core.players.lock().unwrap().remove(&label);
+            self.slots.remove(&d.key);
+            self.respawns += 1;
+            label = format!("{}-{}", label_for(&d.key), self.respawns);
+        }
         match existing {
             Some(win) => {
                 match self.slots.get_mut(&d.key) {
@@ -393,7 +406,7 @@ impl Engine {
                 true
             }
             None => {
-                // The window is gone: never made, or destroyed with its parent when Explorer restarted.
+                // No window yet, or the old one was destroyed with Explorer's desktop window (above).
                 self.slots.remove(&d.key);
                 if self.failed.get(&d.key).is_some_and(|t| t.elapsed() < Duration::from_secs(30)) {
                     return false;

@@ -140,6 +140,13 @@ pub fn attach(app: &AppHandle, win: &WebviewWindow, d: &Display) {
     on_main(app, move || unsafe { attach_now(HWND(h as _), &d) });
 }
 
+/// False once the window is gone underneath Tauri, which happens when Explorer restarts: the
+/// players are children of its desktop window and get destroyed with it, while Tauri still hands
+/// out the old `WebviewWindow`.
+pub fn alive(win: &WebviewWindow) -> bool {
+    hwnd_of(win).is_some_and(|h| unsafe { IsWindow(Some(HWND(h as _))).as_bool() })
+}
+
 pub fn keep_attached(app: &AppHandle, win: &WebviewWindow, d: &Display) {
     let Some(h) = hwnd_of(win) else { return };
     let ok = unsafe {

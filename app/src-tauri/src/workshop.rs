@@ -2,7 +2,8 @@
 //! HTML wallpapers Steam downloads into the library.
 //!
 //! Workshop files can't be downloaded without owning Wallpaper Engine, so Backdrop leaves that to
-//! Steam: "Subscribe" opens the item in the Steam client, Steam downloads it into
+//! Steam: "Download" asks the Steam client to subscribe in the background (`steamapi`, the way
+//! Wallpaper Engine does it), or opens the item in Steam if that can't work. Steam downloads it into
 //! `steamapps/workshop/content/431960/<id>/`, and the sync loop here imports it once it shows up.
 //! Wallpaper Engine has to stay installed in Steam for that (it doesn't have to run).
 //!
@@ -295,19 +296,25 @@ pub fn browse(q: &Query, hidden: &Hidden) -> Result<Page, String> {
 
 /// Every `steamapps/workshop/content/431960` folder, one per Steam library that has one.
 pub fn content_dirs() -> Vec<PathBuf> {
-    let Some(steam) = crate::platform::steam_dir() else { return vec![] };
-    let mut libs = vec![steam.clone()];
-    if let Ok(vdf) = std::fs::read_to_string(steam.join("steamapps").join("libraryfolders.vdf")) {
-        libs.extend(library_paths(&vdf));
-    }
     let mut out: Vec<PathBuf> = vec![];
-    for lib in libs {
+    for lib in steam_libraries() {
         let dir = lib.join("steamapps").join("workshop").join("content").join(APP_ID.to_string());
         if dir.is_dir() && !out.iter().any(|d| same_dir(d, &dir)) {
             out.push(dir);
         }
     }
     out
+}
+
+/// Steam's own folder, then every library folder in `libraryfolders.vdf` (which usually lists
+/// Steam's folder again).
+pub fn steam_libraries() -> Vec<PathBuf> {
+    let Some(steam) = crate::platform::steam_dir() else { return vec![] };
+    let mut libs = vec![steam.clone()];
+    if let Ok(vdf) = std::fs::read_to_string(steam.join("steamapps").join("libraryfolders.vdf")) {
+        libs.extend(library_paths(&vdf));
+    }
+    libs
 }
 
 fn same_dir(a: &Path, b: &Path) -> bool {

@@ -12,7 +12,9 @@ const S = {
   tab: "library",
   filter: "all", // all | rotation
   query: "",
-  sel: null, // selected item id
+  sel: null, // selected item id (the library's hero falls back to what's showing)
+  preview: null, // item id whose video plays in the hero
+  tint: {}, // id -> [accent, ink] sampled from its thumbnail, or null for grey art
   state: null, // StateView from Rust
   thumbVer: {}, // id -> cache buster after a new thumbnail
   videoViaLoopback: false,
@@ -55,9 +57,18 @@ function resLabel(e) {
 }
 
 const ICON = {
-  plus: '<svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></svg>',
+  plus: '<svg viewBox="0 0 16 16"><path d="M8 3.2v9.6M3.2 8h9.6"/></svg>',
   folder: '<svg viewBox="0 0 16 16"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.6l1.4 1.5h5A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z"/></svg>',
   cycle: '<svg viewBox="0 0 16 16"><path d="M13 5.5A5.5 5.5 0 0 0 3.2 6M3 10.5A5.5 5.5 0 0 0 12.8 10"/><path d="M13 2.5v3h-3M3 13.5v-3h3"/></svg>',
+  search: '<svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.4"/><path d="m10.4 10.4 3.1 3.1"/></svg>',
+  play: '<svg class="fill" viewBox="0 0 16 16"><path d="M5 3.6v8.8l7-4.4z"/></svg>',
+  stop: '<svg class="fill" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1.5"/></svg>',
+  trash: '<svg viewBox="0 0 16 16"><path d="M3 4.6h10M6.4 4.6V3.2h3.2v1.4M4.4 4.6l.6 8a1.2 1.2 0 0 0 1.2 1.1h3.6a1.2 1.2 0 0 0 1.2-1.1l.6-8"/></svg>',
+  download: '<svg viewBox="0 0 16 16"><path d="M8 2.5v7.5M5 7.2l3 3 3-3"/><path d="M2.8 11v1.2c0 .8.6 1.4 1.4 1.4h7.6c.8 0 1.4-.6 1.4-1.4V11"/></svg>',
+  external: '<svg viewBox="0 0 16 16"><path d="M9 2.8h4.2V7M13 3 7.6 8.4"/><path d="M11.5 9.6v2.6c0 .7-.6 1.2-1.2 1.2H4c-.7 0-1.2-.5-1.2-1.2V5.9c0-.7.5-1.2 1.2-1.2h2.6"/></svg>',
+  hide: '<svg viewBox="0 0 16 16"><path d="M2.5 2.5l11 11"/><path d="M6.6 4a6.8 6.8 0 0 1 7.2 4 7.4 7.4 0 0 1-1.6 2.2M10 11.6a6.8 6.8 0 0 1-7.8-3.6 7.6 7.6 0 0 1 2-2.6"/></svg>',
+  hideUser: '<svg viewBox="0 0 16 16"><circle cx="6.5" cy="5.5" r="2.6"/><path d="M1.8 13.5c.5-2.4 2.4-3.8 4.7-3.8 1 0 1.9.3 2.6.8M10.5 10.5l3.5 3.5M14 10.5 10.5 14"/></svg>',
+  library: '<svg viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="4.6" height="4.6" rx="1.2"/><rect x="8.9" y="2.5" width="4.6" height="4.6" rx="1.2"/><rect x="2.5" y="8.9" width="4.6" height="4.6" rx="1.2"/><rect x="8.9" y="8.9" width="4.6" height="4.6" rx="1.2"/></svg>',
 };
 
 function toast(text, bad = false) {
@@ -135,13 +146,14 @@ function liveOn(id) {
 }
 
 // ---------- thumbnails ----------
-// Thumbnails come from a frame the webview decodes here, so there's no ffmpeg to ship.
+// Thumbnails come from a frame the webview decodes here, so there's no ffmpeg to ship. The same
+// frame becomes poster.jpg, the 1280px still the library's hero shows instead of the full media.
 
 const thumbQueue = new Set();
 let thumbBusy = false;
 
 function queueThumbs() {
-  for (const it of S.state?.items ?? []) if (!it.thumb && it.kind !== "web" && !thumbQueue.has(it.id) && !thumbFailed.has(it.id)) thumbQueue.add(it.id);
+  for (const it of S.state?.items ?? []) if (!it.poster && it.kind !== "web" && !thumbQueue.has(it.id) && !thumbFailed.has(it.id)) thumbQueue.add(it.id);
   pumpThumbs();
 }
 const thumbFailed = new Set();
@@ -152,16 +164,16 @@ async function pumpThumbs() {
   if (!id) return;
   thumbQueue.delete(id);
   const it = S.state.items.find((i) => i.id === id);
-  if (!it || it.thumb) return pumpThumbs();
+  if (!it || it.poster) return pumpThumbs();
   thumbBusy = true;
   try {
     const src = (it.kind === "video" ? videoUrl : mediaUrl)(`${it.id}/${it.file}`);
-    const { data, width, height } = await grabFrame(src, it.kind).catch((e) => {
+    const { data, poster, width, height } = await grabFrame(src, it.kind).catch((e) => {
       // One retry over loopback if media:// can't decode video here.
       if (it.kind === "video" && mediaVideoFailed()) return grabFrame(videoUrl(`${it.id}/${it.file}`), it.kind);
       throw e;
     });
-    await invoke("save_thumb", { id, data, width, height });
+    await invoke("save_thumb", { id, data, poster, width, height });
     S.thumbVer[id] = Date.now();
   } catch (e) {
     console.warn("thumbnail failed", id, e);
@@ -176,13 +188,18 @@ function grabFrame(src, kind) {
     const timer = setTimeout(() => { cleanup(); reject("timeout"); }, 15000);
     let el;
     const cleanup = () => { clearTimeout(timer); if (el?.tagName === "VIDEO") { el.removeAttribute("src"); el.load(); } };
-    const draw = (w, h) => {
-      const W = 480, H = Math.round((480 * h) / w) || 270;
+    const jpeg = (w, h, W) => {
       const c = document.createElement("canvas");
-      c.width = W; c.height = H;
-      c.getContext("2d").drawImage(el, 0, 0, W, H);
+      c.width = W; c.height = Math.round((W * h) / w) || Math.round((W * 9) / 16);
+      c.getContext("2d").drawImage(el, 0, 0, c.width, c.height);
+      return c.toDataURL("image/jpeg", 0.82);
+    };
+    const draw = (w, h) => {
+      // A codec the webview can't decode still "seeks", just with no picture; don't save a black frame.
+      if (!w || !h) { cleanup(); return reject("no picture"); }
+      const data = jpeg(w, h, 480), poster = jpeg(w, h, Math.min(1280, w || 1280));
       cleanup();
-      resolve({ data: c.toDataURL("image/jpeg", 0.82), width: w, height: h });
+      resolve({ data, poster, width: w, height: h });
     };
     if (kind === "video") {
       el = document.createElement("video");
@@ -228,8 +245,19 @@ const actions = {
   wsKind: (el) => { S.ws.kind = el.dataset.v; wsLoad(); },
   wsMore: () => wsLoad(true),
   wsRetry: () => wsLoad(),
-  wsSelect: (el) => { S.ws.sel = S.ws.sel === el.dataset.id ? null : el.dataset.id; render(); },
-  wsSubscribe: (el) => call("workshop_subscribe", { id: el.dataset.id }, tr("Opened in Steam. Subscribe there; Backdrop adds it once Steam has downloaded it.")),
+  wsSelect: (el) => { S.ws.sel = el.dataset.id; render(); },
+  wsSubscribe: async (el) => {
+    el.disabled = true;
+    try {
+      const how = await call("workshop_subscribe", { id: el.dataset.id });
+      toast(how === "background"
+        ? tr("Downloading through Steam. Backdrop adds it to your library when it's done.")
+        : tr("Opened in Steam. Subscribe there; Backdrop adds it once Steam has downloaded it."));
+    } finally {
+      el.disabled = false;
+    }
+  },
+  wsOpenSteam: (el) => call("workshop_open_steam", { id: el.dataset.id }),
   wsOpen: (el) => call("workshop_open", { id: el.dataset.id }),
   wsAdd: async (el) => {
     el.disabled = true;
@@ -248,10 +276,11 @@ const actions = {
     render();
   },
   wsUnhide: () => call("workshop_unhide_all", {}, tr("Hidden wallpapers will show again")),
-  wsShow: (el) => { S.tab = "library"; S.filter = "all"; S.query = ""; S.sel = el.dataset.item; render(); },
+  wsShow: (el) => { S.tab = "library"; S.filter = "all"; S.query = ""; S.sel = el.dataset.item; S.preview = null; render(); },
   filter: (el) => { S.filter = el.dataset.f; render(); },
   pick: async (el) => importResult(await call("pick_files", { folder: el.dataset.folder === "1" })),
-  select: (el) => { S.sel = S.sel === el.dataset.id ? null : el.dataset.id; render(); },
+  select: (el) => { S.sel = el.dataset.id; S.preview = null; render(); },
+  preview: (el) => { S.preview = S.preview === el.dataset.id ? null : el.dataset.id; render(); },
   setAll: async (el) => {
     await call("set_wallpaper", { id: el.dataset.id, display: null });
   },
@@ -327,7 +356,7 @@ document.addEventListener("keydown", (ev) => {
   } else if (ev.target.classList?.contains("name-in")) {
     if (ev.key === "Enter") ev.target.blur();
     if (ev.key === "Escape") { ev.target.value = ev.target.dataset.orig; ev.target.blur(); }
-  } else if (ev.key === "Escape" && S.sel) { S.sel = null; render(); }
+  } else if (ev.key === "Escape" && S.sel) { S.sel = null; S.preview = null; render(); }
 });
 
 document.addEventListener("focusout", async (ev) => {
@@ -364,7 +393,7 @@ function translateStatic() {
 
 function renderTitle() {
   const tabs = [["library", tr("Library")], ["workshop", tr("Workshop")], ["displays", tr("Displays")], ["settings", tr("Settings")]];
-  morph($("#tabs"), tabs.map(([k, t]) => `<button class="nav-tab ${S.tab === k ? "on" : ""}" data-act="tab" data-tab="${k}">${t}</button>`).join(""));
+  morph($("#tabs"), tabs.map(([k, t]) => `<button class="nav-tab press ${S.tab === k ? "on" : ""}" data-act="tab" data-tab="${k}">${t}</button>`).join(""));
   const ds = S.state.displays;
   const anyPlaying = ds.some((d) => d.status === "playing");
   const paused = ds.filter((d) => d.status === "paused");
@@ -382,110 +411,156 @@ function placeholder(e, key = "") {
   return `<div class="ph ${e.kind}" ${key ? `data-key="${key}"` : ""}><span>${glyph}</span></div>`;
 }
 
-function tileHtml(e) {
+// ---------- tint ----------
+// The accent follows the wallpaper in the hero: one pass over a 32×18 copy of its thumbnail, weighted
+// toward saturated mid-tones, then pinned to a lightness that dark text reads on.
+
+const tintBusy = new Set();
+function tintOf(e) {
+  if (!e) return null;
+  if (e.id in S.tint) return S.tint[e.id];
+  const src = thumbUrl(e);
+  if (src && !tintBusy.has(e.id)) {
+    tintBusy.add(e.id);
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => { S.tint[e.id] = sampleTint(img); tintBusy.delete(e.id); render(); };
+    img.onerror = () => { S.tint[e.id] = null; tintBusy.delete(e.id); };
+    img.src = src;
+  }
+  return null;
+}
+function sampleTint(img) {
+  const c = document.createElement("canvas");
+  c.width = 32; c.height = 18;
+  const g = c.getContext("2d", { willReadFrequently: true });
+  g.drawImage(img, 0, 0, 32, 18);
+  const d = g.getImageData(0, 0, 32, 18).data;
+  let x = 0, y = 0, sat = 0, sum = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i] / 255, gr = d[i + 1] / 255, b = d[i + 2] / 255;
+    const max = Math.max(r, gr, b), min = Math.min(r, gr, b), ch = max - min, l = (max + min) / 2;
+    if (ch < 0.05) continue;
+    const s = ch / (1 - Math.abs(2 * l - 1));
+    const h = (max === r ? ((gr - b) / ch + 6) % 6 : max === gr ? (b - r) / ch + 2 : (r - gr) / ch + 4) * (Math.PI / 3);
+    const w = s * ch * (1 - Math.abs(l - 0.55));
+    x += Math.cos(h) * w; y += Math.sin(h) * w; sat += s * w; sum += w;
+  }
+  if (sum < 3) return null; // grey art keeps the neutral accent
+  const hue = Math.round(((Math.atan2(y, x) * 180) / Math.PI + 360) % 360);
+  const s = Math.round(Math.min(0.85, Math.max(0.45, sat / sum)) * 100);
+  return [`hsl(${hue} ${s}% 68%)`, `hsl(${hue} 45% 11%)`];
+}
+function applyTint(e) {
+  const t = tintOf(e), root = document.documentElement.style;
+  if (t) { root.setProperty("--tint", t[0]); root.setProperty("--tint-ink", t[1]); }
+  else { root.removeProperty("--tint"); root.removeProperty("--tint-ink"); }
+}
+
+// ---------- library ----------
+
+const posterUrl = (e) => (e.poster ? mediaUrl(`${e.id}/poster.jpg`) + `?v=${S.thumbVer[e.id] ?? 0}` : thumbUrl(e));
+// What the hero shows: the pick, else what the main display is showing, else the newest.
+function heroItem() {
+  const all = entries();
+  const live = (S.state.displays.find((d) => d.primary && d.item) ?? S.state.displays.find((d) => d.item))?.item;
+  return all.find((e) => e.id === S.sel) ?? all.find((e) => e.id === live) ?? all[0] ?? null;
+}
+
+const FILTERS = {
+  all: [() => true, "All"],
+  live: [(e) => liveOn(e.id).length > 0, "Live"],
+  rotation: [(e) => inRotation(e.id), "Rotation"],
+  video: [(e) => e.kind === "video", "Videos"],
+  image: [(e) => e.kind === "image", "Images"],
+  web: [(e) => e.kind === "web", "HTML"],
+};
+
+function tileHtml(e, sel) {
   const t = thumbUrl(e);
   const live = liveOn(e.id);
-  const meta = [e.width ? `${e.width}×${e.height}` : null, fmtSize(e.size)].filter(Boolean).join(" · ");
   const res = resLabel(e);
-  return `<button class="tile ${S.sel === e.id ? "sel" : ""}" data-act="select" data-id="${e.id}" data-key="t-${e.id}">
+  return `<button class="tile ${sel ? "sel" : ""}" data-act="select" data-id="${e.id}" data-key="t-${e.id}">
     <div class="thumb">
-      ${t ? `<img src="${esc(t)}" loading="lazy" draggable="false" onerror="this.remove()">` : ""}
-      ${t ? "" : placeholder(e)}
-      <span class="badge">${esc(kindLabel(e))}</span>
-      ${res ? `<span class="res">${res}</span>` : ""}
-      ${inRotation(e.id) ? `<span class="rot" title="${esc(tr("In rotation"))}">${ICON.cycle}</span>` : ""}
-      ${live.length ? `<span class="livetag"><span class="dot ${live[0].status}"></span>${live.length > 1 ? esc(tr("{n} displays", { n: live.length })) : esc(live[0].name)}</span>` : ""}
+      ${t ? `<img src="${esc(t)}" loading="lazy" draggable="false" onerror="this.remove()">` : placeholder(e)}
+      ${live.length ? `<span class="pill tl"><span class="dot ${live[0].status}"></span>${live.length > 1 ? esc(tr("{n} displays", { n: live.length })) : esc(live[0].name)}</span>` : ""}
+      ${res ? `<span class="pill br">${res}</span>` : ""}
     </div>
     <div class="t-name">${esc(e.name)}</div>
-    <div class="t-meta"><span>${meta}</span></div>
+    <div class="t-meta">${inRotation(e.id) ? `<span title="${esc(tr("In rotation"))}">${ICON.cycle}</span>` : ""}<span>${esc(kindLabel(e))} · ${fmtSize(e.size)}</span></div>
   </button>`;
 }
 
-function detailHtml(e) {
-  if (!e) {
-    return `<div class="nodetail">${tr("Pick a wallpaper to see it here.")}<br>${tr("Drop files anywhere in this window to add them.")}</div>`;
-  }
+function heroHtml(e) {
   const live = liveOn(e.id);
   const displays = S.state.displays;
-  const t = thumbUrl(e);
-  let preview;
-  if (e.kind === "video") {
-    preview = `<video data-key="pv-${e.id}-${S.videoViaLoopback ? "l" : "m"}" src="${esc(videoUrl(`${e.id}/${e.file}`))}" ${t ? `poster="${esc(t)}"` : ""} autoplay muted loop playsinline onerror="mediaVideoFailed()"></video>`;
-  } else if (e.kind === "image") {
-    preview = `<img data-key="pi-${e.id}" src="${esc(mediaUrl(`${e.id}/${e.file}`))}" draggable="false">`;
-  } else if (t) {
-    preview = `<img data-key="pt-${e.id}" src="${esc(t)}" draggable="false">`;
-  } else {
-    preview = placeholder(e, `pp-${e.id}`);
-  }
-  const type = e.kind === "web" ? tr("HTML page") : kindLabel(e) === "GIF" ? tr("Animated GIF") : e.kind === "video" ? tr("Video") : tr("Image");
-  const video = [e.codec ? codecName(e.codec) : null, e.fps ? `${Math.round(e.fps * 100) / 100} fps` : null].filter(Boolean).join(" · ");
   const rot = inRotation(e.id);
+  const src = posterUrl(e);
+  const type = e.kind === "web" ? tr("HTML page") : kindLabel(e) === "GIF" ? tr("Animated GIF") : e.kind === "video" ? tr("Video") : tr("Image");
+  const meta = [
+    type,
+    e.width ? `${e.width} × ${e.height}${resLabel(e) ? ` · ${resLabel(e)}` : ""}` : null,
+    e.codec ? codecName(e.codec) : null,
+    e.fps ? `${Math.round(e.fps * 100) / 100} fps` : null,
+    fmtSize(e.size),
+    `${tr("Added")} ${fmtDate(e.added)}`,
+  ].filter(Boolean).join("  ·  ");
+  const canPreview = e.kind === "video" && !cantPlayHere(e);
+  const previewing = canPreview && S.preview === e.id;
+  const icon = (title, act, svg, extra = "") => `<button class="btn round press ${extra}" data-act="${act}" data-id="${e.id}" title="${esc(title)}" aria-label="${esc(title)}">${svg}</button>`;
 
-  return `<div data-key="d-${e.id}">
-    <div class="preview">${preview}</div>
-    <input class="name-in" data-id="${e.id}" data-orig="${esc(e.name)}" value="${esc(e.name)}" spellcheck="false" title="${esc(tr("Rename"))}">
-    <dl class="facts">
-      <dt>${tr("Type")}</dt><dd>${esc(type)}</dd>
-      ${e.width ? `<dt>${tr("Size")}</dt><dd>${e.width}×${e.height}${resLabel(e) ? ` · ${resLabel(e)}` : ""}</dd>` : ""}
-      ${video ? `<dt>${tr("Video")}</dt><dd>${esc(video)}</dd>` : ""}
-      <dt>${tr("File")}</dt><dd>${fmtSize(e.size)}</dd>
-      <dt>${tr("Added")}</dt><dd>${fmtDate(e.added)}</dd>
-      ${live.length ? `<dt>${tr("Showing")}</dt><dd>${live.map((d) => esc(d.name)).join(", ")}</dd>` : ""}
-    </dl>
-    ${cantPlayHere(e) ? `<div class="warn">${tr("Windows can't play {codec} video. Convert it to H.264 (HandBrake works) and add that instead.", { codec: codecName(e.codec) })}</div>` : ""}
-
-    <div class="section">
-      <span class="label">${tr("Wallpaper")}</span>
-      <div class="stack">
-        <button class="act primary" data-act="setAll" data-id="${e.id}"><span>${displays.length > 1 ? tr("Set on all displays") : tr("Set as wallpaper")}</span></button>
-        ${displays.length > 1 ? `<div class="row">${displays.map((d) => `<button class="act" data-act="setOn" data-id="${e.id}" data-display="${esc(d.key)}">${esc(tr("Only {name}", { name: d.name }))}</button>`).join("")}</div>` : ""}
-        <button class="act ${rot ? "on" : ""}" data-act="rotation" data-id="${e.id}">${ICON.cycle} ${rot ? tr("In rotation (click to remove)") : tr("Add to rotation")}</button>
+  return `<section class="hero" data-key="hero">
+    ${src ? `<img class="hero-img" data-key="hi-${e.id}" src="${esc(src)}" draggable="false" onerror="this.remove()">` : placeholder(e, `hp-${e.id}`)}
+    ${previewing ? `<video class="hero-video" data-key="hv-${e.id}-${S.videoViaLoopback ? "l" : "m"}" src="${esc(videoUrl(`${e.id}/${e.file}`))}" autoplay muted loop playsinline onerror="mediaVideoFailed()"></video>` : ""}
+    <div class="hero-info" data-key="hn-${e.id}">
+      <div class="kick">${live.length
+        ? `<span class="dot ${live[0].status}"></span>${esc(tr("Showing on {names}", { names: live.map((d) => d.name).join(", ") }))}`
+        : `${ICON.library}${tr("In your library")}`}</div>
+      <input class="name-in" data-id="${e.id}" data-orig="${esc(e.name)}" value="${esc(e.name)}" spellcheck="false" title="${esc(tr("Rename"))}">
+      <div class="hero-meta">${esc(meta)}</div>
+      ${cantPlayHere(e) ? `<div class="warn">${tr("Windows can't play {codec} video. Convert it to H.264 (HandBrake works) and add that instead.", { codec: codecName(e.codec) })}</div>` : ""}
+      <div class="hero-acts">
+        <button class="btn pri big press" data-act="setAll" data-id="${e.id}">${ICON.play}${displays.length > 1 ? tr("Set on all displays") : tr("Set as wallpaper")}</button>
+        ${displays.length > 1 ? `<div class="where">${displays.map((d) => `<button class="press ${d.item === e.id ? "on" : ""}" data-act="setOn" data-id="${e.id}" data-display="${esc(d.key)}" title="${esc(tr("Only {name}", { name: d.name }))}">${esc(d.name)}</button>`).join("")}</div>` : ""}
+        ${canPreview ? icon(previewing ? tr("Stop preview") : tr("Preview"), "preview", previewing ? ICON.stop : ICON.play, previewing ? "on" : "") : ""}
+        ${icon(rot ? tr("In rotation (click to remove)") : tr("Add to rotation"), "rotation", ICON.cycle, rot ? "on" : "")}
+        ${icon(tr("Remove from the library"), "remove", ICON.trash)}
       </div>
     </div>
-
-    <div class="section">
-      <span class="label">${tr("Remove")}</span>
-      <div class="stack">
-        <button class="act danger" data-act="remove" data-id="${e.id}">${tr("Remove from the library")}</button>
-      </div>
-    </div>
-  </div>`;
+  </section>`;
 }
 
 function renderLibrary() {
   const all = entries();
-  const q = S.query.trim().toLowerCase();
-  const match = { all: () => true, rotation: (e) => inRotation(e.id) };
-  const counts = Object.fromEntries(Object.entries(match).map(([k, f]) => [k, all.filter(f).length]));
-  const shown = all.filter((e) => (match[S.filter] ?? match.all)(e) && (!q || e.name.toLowerCase().includes(q)));
-  const sel = all.find((e) => e.id === S.sel) ?? null;
-  const filters = [["all", tr("All")], ...(counts.rotation ? [["rotation", tr("Rotation")]] : [])];
-
-  let body;
   if (!all.length) {
-    body = `<div class="empty"><h2>${tr("Your library is empty")}</h2>
-      ${tr("Drop videos (MP4, WebM, MOV), images, GIFs or HTML wallpapers anywhere in this window.")}
-      <div class="acts"><button class="act primary" data-act="pick" data-folder="0">${ICON.plus}<span>${tr("Add files")}</span></button>
-      <button class="act" data-act="pick" data-folder="1">${ICON.folder} ${tr("Add an HTML folder")}</button></div></div>`;
-  } else if (!shown.length) {
-    body = `<div class="empty">${tr("Nothing matches.")}</div>`;
-  } else {
-    body = `<div class="grid">${shown.map(tileHtml).join("")}</div>`;
+    return `<div class="page" data-key="p-library-empty">
+      <section class="hero welcome"><div class="hero-info">
+        <div class="hero-title">${tr("Your library is empty")}</div>
+        <p>${tr("Drop videos (MP4, WebM, MOV), images, GIFs or HTML wallpapers anywhere in this window.")}</p>
+        <div class="hero-acts"><button class="btn pri big press" data-act="pick" data-folder="0">${ICON.plus}${tr("Add files")}</button>
+          <button class="btn big press" data-act="pick" data-folder="1">${ICON.folder}${tr("Add an HTML folder")}</button></div>
+      </div></section></div>`;
   }
+  const hero = heroItem();
+  const q = S.query.trim().toLowerCase();
+  const match = FILTERS[S.filter] ?? FILTERS.all;
+  const shown = all.filter((e) => match[0](e) && (!q || e.name.toLowerCase().includes(q)));
+  const chips = Object.entries(FILTERS)
+    .map(([k, [f, label]]) => [k, label, all.filter(f).length])
+    .filter(([k, , n]) => k === "all" || k === S.filter || n);
 
   return `<div class="page" data-key="p-library">
-    <div class="lib-main">
-      <div class="toolbar">
-        <div class="filters">${filters.map(([k, t]) => `<button class="filter ${S.filter === k ? "on" : ""}" data-act="filter" data-f="${k}">${t}<span class="n">${counts[k]}</span></button>`).join("")}</div>
-        <input id="search" class="search" placeholder="${esc(tr("Search"))}" value="${esc(S.query)}" spellcheck="false">
-        <span class="spacer"></span>
-        <button class="act" data-act="pick" data-folder="0">${ICON.plus} ${tr("Add files")}</button>
-        <button class="act" data-act="pick" data-folder="1">${ICON.folder} ${tr("Add HTML folder")}</button>
+    ${heroHtml(hero)}
+    <section class="shelf">
+      <div class="bar">
+        ${chips.map(([k, label, n]) => `<button class="chip press ${S.filter === k ? "on" : ""}" data-act="filter" data-f="${k}">${tr(label)}<span class="n tnum">${n}</span></button>`).join("")}
+        <span class="sp"></span>
+        <label class="search">${ICON.search}<input id="search" placeholder="${esc(tr("Search"))}" value="${esc(S.query)}" spellcheck="false"></label>
+        <button class="btn sm press" data-act="pick" data-folder="0">${ICON.plus}${tr("Add files")}</button>
+        <button class="btn sm round press" data-act="pick" data-folder="1" title="${esc(tr("Add HTML folder"))}" aria-label="${esc(tr("Add HTML folder"))}">${ICON.folder}</button>
       </div>
-      <div class="grid-wrap">${body}</div>
-    </div>
-    <aside class="detail">${detailHtml(sel)}</aside>
+      <div class="grid-wrap">${shown.length ? `<div class="grid">${shown.map((e) => tileHtml(e, e.id === hero.id)).join("")}</div>` : `<div class="empty">${tr("Nothing matches.")}</div>`}</div>
+    </section>
   </div>`;
 }
 
@@ -530,9 +605,16 @@ async function wsLoad(more = false) {
 }
 
 // Steam resizes previews on request, which keeps a grid of animated GIFs light.
-const wsThumb = (url) => (url.includes("steamusercontent.com") ? url + "?imw=480&imh=270&ima=fit&impolicy=Letterbox&letterbox=false" : url);
+const wsThumb = (url, w = 480) =>
+  url.includes("steamusercontent.com") ? url + `?imw=${w}&imh=${Math.round((w * 9) / 16)}&ima=fit&impolicy=Letterbox&letterbox=false` : url;
 const wsLib = (id) => S.state.workshop.inLibrary[id];
 const wsPending = (id) => S.state.workshop.pending.includes(id);
+// Whole percent of a download Backdrop is running through Steam, or null.
+function wsPercent(id) {
+  const p = S.state.workshop.progress?.[id];
+  return p ? (p[1] ? Math.floor((p[0] * 100) / p[1]) : 0) : null;
+}
+const wsWaiting = (id) => (wsPercent(id) !== null ? tr("Downloading {p}%", { p: wsPercent(id) }) : tr("Waiting for Steam"));
 const wsKindLabel = (i) => (i.kind === "web" ? "HTML" : tr("Video"));
 // "3840 x 2160" -> resLabel's "4K"; odd tags like "Ultrawide 3440 x 1440" still parse.
 function wsRes(i) {
@@ -540,108 +622,93 @@ function wsRes(i) {
   return m ? resLabel({ width: +m[1], height: +m[2] }) : null;
 }
 
-function wsTileHtml(i) {
+function wsTileHtml(i, sel) {
   const lib = wsLib(i.id);
   const res = wsRes(i);
-  const state = lib ? tr("In your library") : wsPending(i.id) ? tr("Waiting for Steam") : "";
-  return `<button class="tile ${S.ws.sel === i.id ? "sel" : ""}" data-act="wsSelect" data-id="${i.id}" data-key="w-${i.id}">
+  const state = lib ? tr("In your library") : wsPending(i.id) ? wsWaiting(i.id) : "";
+  return `<button class="tile ${sel ? "sel" : ""}" data-act="wsSelect" data-id="${i.id}" data-key="w-${i.id}">
     <div class="thumb">
       ${i.preview ? `<img src="${esc(wsThumb(i.preview))}" loading="lazy" draggable="false" onerror="this.remove()">` : `<div class="ph ${i.kind}"><span>${i.kind === "web" ? "&lt;/&gt;" : esc(wsKindLabel(i))}</span></div>`}
-      <span class="badge">${esc(wsKindLabel(i))}</span>
-      ${res ? `<span class="res">${res}</span>` : ""}
-      ${state ? `<span class="livetag"><span class="dot ${lib ? "playing" : "paused"}"></span>${esc(state)}</span>` : ""}
+      ${state ? `<span class="pill tl"><span class="dot ${lib ? "playing" : "paused"}"></span>${esc(state)}</span>` : ""}
+      ${res ? `<span class="pill br">${res}</span>` : ""}
     </div>
     <div class="t-name">${esc(i.title)}</div>
-    <div class="t-meta"><span>${[i.genres.map(tr).join(", "), i.size ? fmtSize(i.size) : null].filter(Boolean).join(" · ")}</span></div>
+    <div class="t-meta"><span>${esc([i.genres.map(tr).join(", "), i.size ? fmtSize(i.size) : null].filter(Boolean).join(" · "))}</span></div>
   </button>`;
 }
 
-function wsDetailHtml(i) {
+function wsHeroHtml(i) {
+  const w = S.ws;
   if (!i) {
-    return `<div class="nodetail">${tr("Pick a wallpaper to see it here.")}<br>${tr("Anime wallpapers are left out. If one slips through, hide it.")}</div>`;
+    const body = w.error
+      ? `<div class="hero-title">${tr("Couldn't reach Steam")}</div><p>${esc(w.error)}</p>
+         <div class="hero-acts"><button class="btn pri big press" data-act="wsRetry">${tr("Try again")}</button></div>`
+      : `<div class="hero-title">${tr("Workshop")}</div><p>${w.items ? (w.view === "discover" ? tr("Nothing matches.") : tr("Steam hasn't downloaded any video or HTML wallpapers for Wallpaper Engine.")) : tr("Loading…")}</p>`;
+    return `<section class="hero welcome" data-key="ws-hero-none"><div class="hero-info">${body}</div></section>`;
   }
   const lib = wsLib(i.id);
   const pending = wsPending(i.id);
-  const inSteam = S.ws.view === "steam";
+  const icon = (title, act, svg, extra = "") => `<button class="btn round press" data-act="${act}" data-id="${i.id}" ${extra} title="${esc(title)}" aria-label="${esc(title)}">${svg}</button>`;
   let acts;
-  if (lib) {
-    acts = `<button class="act primary" data-act="wsShow" data-item="${lib}"><span>${tr("Show in the library")}</span></button>`;
-  } else if (inSteam) {
-    acts = `<button class="act primary" data-act="wsAdd" data-id="${i.id}"><span>${tr("Add to library")}</span></button>`;
-  } else {
-    acts = `<button class="act primary" data-act="wsSubscribe" data-id="${i.id}"><span>${pending ? tr("Open in Steam again") : tr("Subscribe in Steam")}</span></button>
-      ${pending ? `<div class="hint">${tr("Backdrop adds it to your library as soon as Steam has downloaded it.")}</div>` : ""}
-      <button class="act" data-act="wsAdd" data-id="${i.id}">${tr("Already downloaded? Add it now")}</button>`;
-  }
-  return `<div data-key="wd-${i.id}">
-    <div class="preview">${i.preview ? `<img data-key="wp-${i.id}" src="${esc(i.preview)}" draggable="false">` : ""}</div>
-    <div class="ws-title">${esc(i.title)}</div>
-    <dl class="facts">
-      <dt>${tr("Type")}</dt><dd>${esc(i.kind === "web" ? tr("HTML page") : tr("Video"))}</dd>
-      ${i.resolution ? `<dt>${tr("Size")}</dt><dd>${esc(i.resolution)}${wsRes(i) ? ` · ${wsRes(i)}` : ""}</dd>` : ""}
-      ${i.size ? `<dt>${tr("File")}</dt><dd>${fmtSize(i.size)}</dd>` : ""}
-      <dt>${tr("Genre")}</dt><dd>${esc(i.genres.map(tr).join(", "))}</dd>
-      <dt>${tr("Subscribers")}</dt><dd>${i.subscriptions.toLocaleString()}</dd>
-    </dl>
-    ${i.description ? `<p class="hint ws-desc">${esc(i.description.replace(/\[[^\]]*\]/g, ""))}</p>` : ""}
-    <div class="section">
-      <span class="label">${tr("Wallpaper")}</span>
-      <div class="stack">
-        ${acts}
-        <button class="act" data-act="wsOpen" data-id="${i.id}">${tr("Open the workshop page")}</button>
+  if (lib) acts = `<button class="btn pri big press" data-act="wsShow" data-item="${lib}">${ICON.library}${tr("Show in the library")}</button>`;
+  else if (w.view === "steam") acts = `<button class="btn pri big press" data-act="wsAdd" data-id="${i.id}">${ICON.plus}${tr("Add to library")}</button>`;
+  else if (pending) acts = `<button class="btn pri big press" disabled>${ICON.download}${esc(wsWaiting(i.id))}</button>
+      <button class="btn big press" data-act="wsOpenSteam" data-id="${i.id}">${tr("Open in Steam")}</button>`;
+  else acts = `<button class="btn pri big press" data-act="wsSubscribe" data-id="${i.id}">${ICON.download}${tr("Download")}</button>`;
+  if (!lib && w.view !== "steam") acts += `<button class="btn big press" data-act="wsAdd" data-id="${i.id}">${tr("Already downloaded? Add it now")}</button>`;
+  const meta = [
+    i.kind === "web" ? tr("HTML page") : tr("Video"),
+    i.resolution ? `${i.resolution}${wsRes(i) ? ` · ${wsRes(i)}` : ""}` : null,
+    i.size ? fmtSize(i.size) : null,
+    tr("{n} subscribers", { n: i.subscriptions.toLocaleString() }),
+  ].filter(Boolean).join("  ·  ");
+  const kick = lib ? tr("In your library") : pending ? wsWaiting(i.id) : i.genres.map(tr).join(", ");
+  return `<section class="hero" data-key="ws-hero">
+    ${i.preview ? `<img class="hero-img" data-key="whi-${i.id}" src="${esc(wsThumb(i.preview, 1280))}" draggable="false" onerror="this.remove()">` : ""}
+    <div class="hero-info" data-key="whn-${i.id}">
+      <div class="kick">${lib || pending ? `<span class="dot ${lib ? "playing" : "paused"}"></span>` : ""}${esc(kick)}</div>
+      <div class="hero-title" title="${esc(i.title)}">${esc(i.title)}</div>
+      <div class="hero-meta">${esc(meta)}</div>
+      ${i.description ? `<div class="hero-desc">${esc(i.description.replace(/\[[^\]]*\]/g, ""))}</div>` : ""}
+      <div class="hero-acts">${acts}
+        ${icon(tr("Open the workshop page"), "wsOpen", ICON.external)}
+        ${icon(tr("Hide this wallpaper"), "wsHide", ICON.hide)}
+        ${i.creator ? icon(tr("Hide everything by this creator"), "wsHide", ICON.hideUser, `data-creator="${esc(i.creator)}"`) : ""}
       </div>
     </div>
-    <div class="section">
-      <span class="label">${tr("Hide")}</span>
-      <div class="stack">
-        <button class="act danger" data-act="wsHide" data-id="${i.id}">${tr("Hide this wallpaper")}</button>
-        ${i.creator ? `<button class="act danger" data-act="wsHide" data-id="${i.id}" data-creator="${esc(i.creator)}">${tr("Hide everything by this creator")}</button>` : ""}
-      </div>
-    </div>
-  </div>`;
+  </section>`;
 }
 
 function renderWorkshop() {
   const w = S.ws;
   const discover = w.view === "discover";
   const items = w.items ?? [];
-  const sel = items.find((i) => i.id === w.sel) ?? null;
+  const sel = items.find((i) => i.id === w.sel) ?? items[0] ?? null;
   const views = [["discover", tr("Discover")], ["steam", tr("Downloaded in Steam")]];
   const genres = [["", tr("All genres")], ...S.state.workshop.genres.map((g) => [g, tr(g)])];
+  const sorts = [["week", tr("Trending")], ["month", tr("Top this month")], ["year", tr("Top this year")], ["allTime", tr("Most subscribed")], ["newest", tr("Newest")]];
 
-  let body;
-  if (w.error && !items.length) {
-    body = `<div class="empty"><h2>${tr("Couldn't reach Steam")}</h2>${esc(w.error)}
-      <div class="acts"><button class="act primary" data-act="wsRetry"><span>${tr("Try again")}</span></button></div></div>`;
-  } else if (!w.items) {
-    body = `<div class="empty">${tr("Loading…")}</div>`;
-  } else if (!items.length) {
-    body = `<div class="empty">${discover ? tr("Nothing matches.") : tr("Steam hasn't downloaded any video or HTML wallpapers for Wallpaper Engine.")}</div>`;
-  } else {
-    body = `<div class="grid">${items.map(wsTileHtml).join("")}</div>
-      ${w.more || (w.loading && items.length) ? `<div class="ws-more"><button class="act" data-act="wsMore" ${w.loading ? "disabled" : ""}>${w.loading ? tr("Loading…") : tr("Load more")}</button></div>` : ""}`;
-  }
-
+  const grid = items.length
+    ? `<div class="grid">${items.map((i) => wsTileHtml(i, i.id === sel?.id)).join("")}</div>
+      ${w.more || (w.loading && items.length) ? `<div class="more"><button class="btn sm press" data-act="wsMore" ${w.loading ? "disabled" : ""}>${w.loading ? tr("Loading…") : tr("Load more")}</button></div>` : ""}`
+    : "";
   const note = S.state.workshop.steam ? "" :
     `<div class="warn ws-warn">${tr("Steam's Wallpaper Engine folder wasn't found. You can browse, but subscribing only downloads anything if Steam is installed and you own Wallpaper Engine (it has to stay installed; it doesn't have to run).")}</div>`;
 
   return `<div class="page" data-key="p-workshop">
-    <div class="lib-main">
-      <div class="toolbar">
-        <div class="filters">${views.map(([k, t]) => `<button class="filter ${w.view === k ? "on" : ""}" data-act="wsView" data-v="${k}">${t}</button>`).join("")}</div>
-        ${discover ? `<input id="ws-search" class="search" placeholder="${esc(tr("Search, then Enter"))}" value="${esc(w.search)}" spellcheck="false">
-        <span class="spacer"></span>
-        <select id="ws-genre" class="ws-select">${genres.map(([v, t]) => `<option value="${esc(v)}" ${w.genre === v ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>` : `<span class="spacer"></span>`}
+    ${wsHeroHtml(sel)}
+    <section class="shelf">
+      <div class="bar">
+        ${views.map(([k, t]) => `<button class="chip press ${w.view === k ? "on" : ""}" data-act="wsView" data-v="${k}">${t}</button>`).join("")}
+        <span class="sp"></span>
+        ${discover ? `<label class="search">${ICON.search}<input id="ws-search" placeholder="${esc(tr("Search, then Enter"))}" value="${esc(w.search)}" spellcheck="false"></label>
+        <select id="ws-genre" class="select">${genres.map(([v, t]) => `<option value="${esc(v)}" ${w.genre === v ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>` : ""}
       </div>
-      ${discover ? `<div class="toolbar ws-sub">
-        ${seg("wsSort", w.sort, [["week", tr("Trending")], ["month", tr("Top this month")], ["year", tr("Top this year")], ["allTime", tr("Most subscribed")], ["newest", tr("Newest")]])}
-        <span class="spacer"></span>
-        ${seg("wsKind", w.kind, [["video", tr("Video")], ["web", "HTML"]])}
-      </div>` : ""}
+      ${discover ? `<div class="bar sub">${sorts.map(([v, t]) => `<button class="chip press ${w.sort === v ? "on" : ""}" data-act="wsSort" data-v="${v}">${t}</button>`).join("")}
+        <span class="sp"></span>${seg("wsKind", w.kind, [["video", tr("Video")], ["web", "HTML"]])}</div>` : ""}
       ${note}
-      <div class="grid-wrap">${body}</div>
-    </div>
-    <aside class="detail">${wsDetailHtml(sel)}</aside>
+      <div class="grid-wrap">${grid}</div>
+    </section>
   </div>`;
 }
 
@@ -652,12 +719,12 @@ function renderDisplays() {
   if (ds.length) {
     const minX = Math.min(...ds.map((d) => d.x)), minY = Math.min(...ds.map((d) => d.y));
     const maxX = Math.max(...ds.map((d) => d.x + d.width)), maxY = Math.max(...ds.map((d) => d.y + d.height));
-    const W = 640, scale = Math.min(W / (maxX - minX), 260 / (maxY - minY));
-    const H = Math.round((maxY - minY) * scale);
-    map = `<div class="arrangement" style="height:${H}px;width:${Math.round((maxX - minX) * scale)}px">${ds.map((d) => {
+    const scale = Math.min(720 / (maxX - minX), 280 / (maxY - minY));
+    map = `<div class="arrangement" style="height:${Math.round((maxY - minY) * scale)}px;width:${Math.round((maxX - minX) * scale)}px">${ds.map((d) => {
       const e = d.item && byId.get(d.item);
-      const t = e && thumbUrl(e);
-      return `<div class="screen ${d.status === "playing" ? "live" : ""}" style="left:${Math.round((d.x - minX) * scale) + 2}px;top:${Math.round((d.y - minY) * scale) + 2}px;width:${Math.round(d.width * scale) - 4}px;height:${Math.round(d.height * scale) - 4}px;${t ? `background-image:url('${t}')` : ""}"><span class="cap">${esc(d.name)}${d.primary ? ` · ${tr("main")}` : ""}</span></div>`;
+      const t = e && posterUrl(e);
+      return `<div class="screen" style="left:${Math.round((d.x - minX) * scale) + 3}px;top:${Math.round((d.y - minY) * scale) + 3}px;width:${Math.round(d.width * scale) - 6}px;height:${Math.round(d.height * scale) - 6}px;${t ? `background-image:url('${t}')` : ""}">
+        <span class="pill"><span class="dot ${d.status}"></span>${esc(d.name)}${d.primary ? ` · ${tr("main")}` : ""}</span></div>`;
     }).join("")}</div>`;
   }
   const status = (d) =>
@@ -667,26 +734,28 @@ function renderDisplays() {
     : tr("Nothing set");
   const rows = ds.map((d) => {
     const e = d.item && byId.get(d.item);
+    const t = e && thumbUrl(e);
     return `<div class="drow">
-      <div><div class="dname">${esc(d.name)}</div><div class="sub">${d.width}×${d.height}${d.scale !== 1 ? ` · ${Math.round(d.scale * 100)}%` : ""}${d.primary ? ` · ${tr("main display")}` : ""}</div></div>
-      <div class="now"><span class="dot ${d.status}"></span><span>${e ? esc(e.name) + " · " : ""}${esc(status(d))}</span></div>
-      <div>${d.item ? `<button class="act" data-act="clearDisplay" data-display="${esc(d.key)}">${tr("Clear")}</button>` : ""}</div>
+      <div><h3>${esc(d.name)}</h3><div class="sub">${d.width}×${d.height}${d.scale !== 1 ? ` · ${Math.round(d.scale * 100)}%` : ""}${d.primary ? ` · ${tr("main display")}` : ""}</div></div>
+      <div class="now">${e ? (t ? `<img src="${esc(t)}" draggable="false">` : placeholder(e)) : ""}<div class="what"><div>${e ? esc(e.name) : ""}</div><div class="hint">${esc(status(d))}</div></div></div>
+      <div>${d.item ? `<button class="btn sm press" data-act="clearDisplay" data-display="${esc(d.key)}">${tr("Clear")}</button>` : ""}</div>
     </div>`;
   }).join("");
-    return `<div class="page" data-key="p-displays"><div class="scroll"><div class="narrow">
-    <span class="label">${tr("Displays")}</span>
-    ${map}
-    ${rows || `<div class="muted">${tr("No displays found.")}</div>`}
-    <p class="hint">${tr("Choose wallpapers in the Library. Still images are handed to {os} as the normal wallpaper, so they cost nothing to show. Videos and HTML play behind your desktop icons and pause when they're covered.", { os: "Windows" })}</p>
-  </div></div></div>`;
+  return `<div class="page" data-key="p-displays">
+    <header class="head"><h1>${tr("Displays")}</h1>
+      <p>${tr("Choose wallpapers in the Library. Still images are handed to {os} as the normal wallpaper, so they cost nothing to show. Videos and HTML play behind your desktop icons and pause when they're covered.", { os: "Windows" })}</p></header>
+    <div class="scroll">${map}${rows || `<div class="muted">${tr("No displays found.")}</div>`}</div>
+  </div>`;
 }
 
 function seg(act, cur, opts) {
-  return `<div class="seg">${opts.map(([v, t]) => `<button class="${String(cur) === v ? "on" : ""}" data-act="${act}" data-v="${v}">${t}</button>`).join("")}</div>`;
+  return `<div class="seg">${opts.map(([v, t]) => `<button class="press ${String(cur) === v ? "on" : ""}" data-act="${act}" data-v="${v}">${t}</button>`).join("")}</div>`;
 }
-const offOn = (act, v) => seg(act, v ? "1" : "0", [["0", tr("Off")], ["1", tr("On")]]);
+// A switch sends the value it flips to, so the on(el) handlers stay as they were.
+const offOn = (act, v) => `<button class="sw press ${v ? "on" : ""}" data-act="${act}" data-v="${v ? "0" : "1"}" role="switch" aria-checked="${!!v}"></button>`;
 const row = (what, hint, control) =>
   `<div class="set-row"><div class="what">${what}${hint ? `<div class="hint">${hint}</div>` : ""}</div>${control}</div>`;
+const section = (title, sub, rows) => `<div class="sec"><div><h3>${title}</h3>${sub ? `<p>${sub}</p>` : ""}</div><div>${rows}</div></div>`;
 
 function renderSettings() {
   const c = S.state.config;
@@ -697,63 +766,55 @@ function renderSettings() {
     : tr("Rotates through every wallpaper on this computer. Mark some with Add to rotation in the Library to narrow it down.");
   const speeds = [["0.5", "0.5×"], ["0.75", "0.75×"], ["1", "1×"], ["1.25", "1.25×"], ["1.5", "1.5×"], ["2", "2×"]];
   const langs = [["", tr("System")], ["en", "English"], ["es", "Español"], ["de", "Deutsch"], ["zh-Hans", "简体中文"]];
+  const hidden = S.state.workshop.hidden.items.length + S.state.workshop.hidden.creators.length;
 
-  return `<div class="page" data-key="p-settings"><div class="scroll"><div class="narrow">
-    <div class="set-sec">
-      <span class="label">${tr("Playback")}</span>
-      ${row(tr("Fit"), tr("How wallpapers that don't match the screen's shape are scaled."),
-        seg("fit", c.fit, [["cover", tr("Fill")], ["contain", tr("Fit")], ["height", tr("Fit height")], ["stretch", tr("Stretch")], ["center", tr("Center")]]))}
-      ${row(tr("Speed"), tr("Playback speed for videos."), seg("speed", String(c.speed), speeds))}
-      <div class="set-row"><div class="what">${tr("Sound")}<div class="hint">${tr("Videos and HTML wallpapers with audio.")}</div></div>
+  return `<div class="page" data-key="p-settings">
+    <header class="head"><h1>${tr("Settings")}</h1>
+      <p>${tr("Backdrop {version}. Closing this window keeps wallpapers running; quit from the {tray} icon.", { version: esc(S.state.version), tray: trayName() })}</p></header>
+    <div class="scroll">
+    ${section(tr("Playback"), "", [
+      row(tr("Fit"), tr("How wallpapers that don't match the screen's shape are scaled."),
+        seg("fit", c.fit, [["cover", tr("Fill")], ["contain", tr("Fit")], ["height", tr("Fit height")], ["stretch", tr("Stretch")], ["center", tr("Center")]])),
+      row(tr("Speed"), tr("Playback speed for videos."), seg("speed", String(c.speed), speeds)),
+      `<div class="set-row"><div class="what">${tr("Sound")}<div class="hint">${tr("Videos and HTML wallpapers with audio.")}</div></div>
         ${c.muted ? "" : `<input id="volume" type="range" min="0" max="100" value="${Math.round(c.volume * 100)}">`}
-        ${seg("muted", c.muted ? "1" : "0", [["1", tr("Muted")], ["0", tr("On")]])}</div>
-      ${row(tr("Shade the {bar}", { bar }), tr("Darkens a strip of moving wallpapers under the {bar} so it stays readable.", { bar }), offOn("shadeBar", c.shadeBar))}
-      ${row(tr("Match the system wallpaper"), tr("Sets a still frame of each moving wallpaper as the Windows wallpaper, so the desktop matches before Backdrop starts."), offOn("stillFrame", c.stillFrame))}
+        ${seg("muted", c.muted ? "1" : "0", [["1", tr("Muted")], ["0", tr("On")]])}</div>`,
+      row(tr("Shade the {bar}", { bar }), tr("Darkens a strip of moving wallpapers under the {bar} so it stays readable.", { bar }), offOn("shadeBar", c.shadeBar)),
+      row(tr("Match the system wallpaper"), tr("Sets a still frame of each moving wallpaper as the Windows wallpaper, so the desktop matches before Backdrop starts."), offOn("stillFrame", c.stillFrame)),
+    ].join(""))}
+    ${section(tr("Rotation"), poolHint, [
+      row(tr("Change wallpaper"), "",
+        seg("rotMinutes", r.minutes, [["0", tr("Never")], ["15", tr("15 min")], ["30", tr("30 min")], ["60", tr("1 hour")], ["180", tr("3 hours")], ["1440", tr("1 day")]])),
+      row(tr("Order"), "", seg("rotOrder", r.order, [["sequential", tr("In order")], ["shuffle", tr("Shuffle")]])),
+      S.state.displays.length > 1 ? row(tr("Displays"), "", seg("rotPerDisplay", r.perDisplay ? "1" : "0", [["0", tr("Same on all")], ["1", tr("Different on each")]])) : "",
+      row(tr("Random at startup"), tr("Picks a random wallpaper each time Backdrop starts."), offOn("rotOnStart", r.onStart)),
+      row(tr("Random after waking"), tr("Picks a random wallpaper when the computer wakes from sleep, for example when you open the lid."), offOn("rotOnWake", r.onWake)),
+      row(tr("Next wallpaper"), tr("Also in the {tray} menu.", { tray: trayName() }), `<button class="btn sm press" data-act="next">${ICON.cycle}${tr("Next")}</button>`),
+    ].join(""))}
+    ${section(tr("Saving power"), "", [
+      row(tr("Pause when covered"), tr("Stops a wallpaper while a maximized or fullscreen app hides it."), offOn("pauseCovered", c.pauseCovered)),
+      row(tr("Pause when an app is in front"), tr("Plays only while the desktop has focus on that display."), offOn("pauseFocused", c.pauseFocused)),
+      row(tr("Pause on battery"), "", offOn("pauseBattery", c.pauseBattery)),
+      row(tr("Pause with battery saver on"), "", offOn("pauseLowPower", c.pauseLowPower)),
+      row(tr("Pause when locked"), "", offOn("pauseLocked", c.pauseLocked)),
+    ].join(""))}
+    ${section(tr("App"), "", [
+      row(tr("Language"), "", seg("language", c.language, langs)),
+      row(tr("Start at login"), tr("Starts in the {tray} without opening this window.", { tray: trayName() }), offOn("autostart", S.state.autostart)),
+      row(tr("Library folder"), `<span class="mono">${esc(S.state.libraryDir)}</span>`, `<button class="btn sm press" data-act="openDir">${tr("Open")}</button>`),
+      hidden ? row(tr("Hidden in the Workshop"), tr("{n} hidden (single wallpapers and creators).", { n: hidden }), `<button class="btn sm press" data-act="wsUnhide">${tr("Show again")}</button>`) : "",
+      row(tr("Reset settings"), tr("Keeps your library."), `<button class="btn sm danger press" data-act="reset">${tr("Reset")}</button>`),
+    ].join(""))}
     </div>
-
-    <div class="set-sec">
-      <span class="label">${tr("Rotation")}</span>
-      ${row(tr("Change wallpaper"), poolHint,
-        seg("rotMinutes", r.minutes, [["0", tr("Never")], ["15", tr("15 min")], ["30", tr("30 min")], ["60", tr("1 hour")], ["180", tr("3 hours")], ["1440", tr("1 day")]]))}
-      ${row(tr("Order"), "", seg("rotOrder", r.order, [["sequential", tr("In order")], ["shuffle", tr("Shuffle")]]))}
-      ${S.state.displays.length > 1 ? row(tr("Displays"), "", seg("rotPerDisplay", r.perDisplay ? "1" : "0", [["0", tr("Same on all")], ["1", tr("Different on each")]])) : ""}
-      ${row(tr("Random at startup"), tr("Picks a random wallpaper each time Backdrop starts."), offOn("rotOnStart", r.onStart))}
-      ${row(tr("Random after waking"), tr("Picks a random wallpaper when the computer wakes from sleep, for example when you open the lid."), offOn("rotOnWake", r.onWake))}
-      <div class="set-row"><div class="what">${tr("Next wallpaper")}<div class="hint">${tr("Also in the {tray} menu.", { tray: trayName() })}</div></div>
-        <button class="act" data-act="next">${ICON.cycle} ${tr("Next")}</button></div>
-    </div>
-
-    <div class="set-sec">
-      <span class="label">${tr("Saving power")}</span>
-      ${row(tr("Pause when covered"), tr("Stops a wallpaper while a maximized or fullscreen app hides it."), offOn("pauseCovered", c.pauseCovered))}
-      ${row(tr("Pause when an app is in front"), tr("Plays only while the desktop has focus on that display."), offOn("pauseFocused", c.pauseFocused))}
-      ${row(tr("Pause on battery"), "", offOn("pauseBattery", c.pauseBattery))}
-      ${row(tr("Pause with battery saver on"), "", offOn("pauseLowPower", c.pauseLowPower))}
-      ${row(tr("Pause when locked"), "", offOn("pauseLocked", c.pauseLocked))}
-    </div>
-
-    <div class="set-sec">
-      <span class="label">${tr("App")}</span>
-      ${row(tr("Language"), "", seg("language", c.language, langs))}
-      ${row(tr("Start at login"), tr("Starts in the {tray} without opening this window.", { tray: trayName() }), offOn("autostart", S.state.autostart))}
-      <div class="set-row"><div class="what">${tr("Library folder")}<div class="hint mono">${esc(S.state.libraryDir)}</div></div>
-        <button class="act" data-act="openDir">${tr("Open")}</button></div>
-      ${(() => {
-        const h = S.state.workshop.hidden;
-        const n = h.items.length + h.creators.length;
-        return n ? row(tr("Hidden in the Workshop"), tr("{n} hidden (single wallpapers and creators).", { n }),
-          `<button class="act" data-act="wsUnhide">${tr("Show again")}</button>`) : "";
-      })()}
-      ${row(tr("Reset settings"), tr("Keeps your library."), `<button class="act danger" data-act="reset">${tr("Reset")}</button>`)}
-      <p class="hint">${tr("Backdrop {version}. Closing this window keeps wallpapers running; quit from the {tray} icon.", { version: esc(S.state.version), tray: trayName() })}</p>
-    </div>
-  </div></div></div>`;
+  </div>`;
 }
 
 function render() {
   if (!S.state) return;
   renderTitle();
   const html = S.tab === "displays" ? renderDisplays() : S.tab === "settings" ? renderSettings() : S.tab === "workshop" ? renderWorkshop() : renderLibrary();
+  // Workshop art is remote (no canvas access), so it keeps the neutral accent.
+  applyTint(S.tab === "workshop" ? null : S.tab === "library" ? heroItem() : entries().find((e) => liveOn(e.id).length));
   morph($("#page"), html);
 }
 

@@ -15,6 +15,10 @@ pub fn attach(_app: &AppHandle, win: &WebviewWindow, d: &Display) {
     let _ = win.show();
 }
 
+pub fn alive(_win: &WebviewWindow) -> bool {
+    true
+}
+
 pub fn keep_attached(_app: &AppHandle, _win: &WebviewWindow, _d: &Display) {}
 
 pub fn set_image(_app: &AppHandle, _d: &Display, _path: &Path, _fit: Fit) -> Result<(), String> {

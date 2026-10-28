@@ -29,7 +29,7 @@ The Windows build is about 5 MB installed, from a 2 MB installer.
 - Resolution badges (4K, 1440p, 1080p) and codec details for each item, with a warning on HEVC and ProRes
   files, which Windows can't play
 - A Workshop tab for browsing video and HTML wallpapers from the Wallpaper Engine Steam Workshop, with
-  anime left out; Steam downloads what you subscribe to and Backdrop adds it to the library
+  anime left out; Steam downloads them in the background and Backdrop adds them to the library
 - Drag-and-drop import; HTML wallpapers can be a folder with an `index.html`, a `.zip` of one, or a single
   `.html` file
 - Interface in English, Spanish, German and Simplified Chinese
@@ -93,10 +93,15 @@ that turned out to be mostly anime (or memes) when sampled, items need one of th
 no anime words (English, Chinese or Japanese) in the title or description, and anything that still slips
 through can be hidden by item or by creator.
 
-Workshop files can only be downloaded by someone who owns Wallpaper Engine, so Backdrop doesn't download
-them itself. *Subscribe in Steam* opens the item in the Steam client; once Steam has put it in
-`steamapps/workshop/content/431960/`, Backdrop imports it, hard-linked when it's on the same drive so it
-takes no extra space. The *Downloaded in Steam* view lists earlier subscriptions to add by hand.
+Workshop files can only be downloaded by someone who owns Wallpaper Engine, so Steam does the
+downloading. *Download* works the way Wallpaper Engine does (`steamapi.rs`): a short-lived helper
+(`backdrop.exe --steam-download <id>`) loads Wallpaper Engine's own `steam_api64.dll`, subscribes through
+the running Steam client and reports progress until the download finishes, so no Steam window opens.
+Steam shows Wallpaper Engine as running while the helper is alive. If Steam isn't running, or Wallpaper
+Engine isn't installed, Backdrop opens the item in the Steam client to subscribe there instead. Once Steam
+has put the item in `steamapps/workshop/content/431960/`, Backdrop imports it, hard-linked when it's on
+the same drive so it takes no extra space. The *Downloaded in Steam* view lists earlier subscriptions to
+add by hand.
 
 #### Item identity
 

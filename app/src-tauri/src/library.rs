@@ -1,4 +1,5 @@
-//! The local library: `<app data>/library/<id>/` holding `meta.json`, the media file and `thumb.jpg`.
+//! The local library: `<app data>/library/<id>/` holding `meta.json`, the media file, `thumb.jpg`
+//! and `poster.jpg` (the larger frame the library's hero shows).
 //! Web wallpapers also keep their zip extracted in `web/`.
 
 use crate::common::{self, Item, Kind};
@@ -17,6 +18,7 @@ pub struct ItemView {
     #[serde(flatten)]
     pub item: Item,
     pub thumb: bool,
+    pub poster: bool,
 }
 
 impl Library {
@@ -60,7 +62,11 @@ impl Library {
         let mut v: Vec<ItemView> = self
             .items
             .values()
-            .map(|i| ItemView { item: i.clone(), thumb: self.has_thumb(&i.id) })
+            .map(|i| ItemView {
+                item: i.clone(),
+                thumb: self.has_thumb(&i.id),
+                poster: self.dir(&i.id).join("poster.jpg").is_file(),
+            })
             .collect();
         v.sort_by(|a, b| b.item.added.cmp(&a.item.added).then(a.item.name.cmp(&b.item.name)));
         v

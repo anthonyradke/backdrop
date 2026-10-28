@@ -7,6 +7,7 @@ mod loopback;
 mod media;
 mod platform;
 mod rotation;
+mod steamapi;
 mod workshop;
 
 use config::Config;
@@ -156,6 +157,8 @@ pub struct WorkshopView {
     in_library: HashMap<String, String>,
     hidden: workshop::Hidden,
     genres: &'static [&'static str],
+    /// Workshop id -> [bytes downloaded, total] for downloads Backdrop started through Steam.
+    progress: HashMap<String, [u64; 2]>,
 }
 
 impl Core {
@@ -212,6 +215,7 @@ impl Core {
                 hidden,
                 in_library,
                 genres: workshop::GENRES,
+                progress: steamapi::progress(),
             },
         }
     }
@@ -291,6 +295,10 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 }
 
 pub fn run() {
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).is_some_and(|a| a == steamapi::HELPER_ARG) {
+        std::process::exit(steamapi::helper(args.get(2).map(String::as_str)));
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
         .plugin(tauri_plugin_dialog::init())
@@ -366,6 +374,7 @@ pub fn run() {
             commands::workshop_subscribed,
             commands::workshop_subscribe,
             commands::workshop_open,
+            commands::workshop_open_steam,
             commands::workshop_add,
             commands::workshop_hide,
             commands::workshop_unhide_all,

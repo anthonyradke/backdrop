@@ -6,21 +6,22 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<main id="page"></main>
 <header class="titlebar" data-tauri-drag-region>
   <div class="tb-brand" data-tauri-drag-region>
-    <svg class="tb-mark" viewBox="0 0 16 16"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8b5cf6"/><stop offset="1" stop-color="#38bdf8"/></linearGradient></defs><rect x="1" y="1" width="14" height="14" rx="3.5" fill="url(#g)"/><path d="M3 12 L6.5 7.5 L8.6 10 L10.3 8.4 L13 12 Z" fill="#07080b" opacity=".85"/><circle cx="10.6" cy="5" r="1.3" fill="#fff"/></svg>
+    <svg class="tb-mark" viewBox="0 0 64 64"><defs><linearGradient id="mk-b" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffb35c"/><stop offset=".5" stop-color="#ff5d77"/><stop offset="1" stop-color="#7656ff"/></linearGradient></defs><rect x="2" y="2" width="60" height="60" rx="14" fill="#141418"/><rect x="9" y="11.5" width="37.5" height="31" rx="6" fill="url(#mk-b)"/><rect x="17.5" y="21.2" width="37.5" height="31" rx="6" fill="#fff" fill-opacity=".26"/><rect x="18" y="21.7" width="36.5" height="30" rx="5.5" fill="none" stroke="#fff" stroke-opacity=".6"/></svg>
     Backdrop
   </div>
   <nav class="nav-tabs" id="tabs"></nav>
-  <div class="tb-spacer" data-tauri-drag-region></div>
-  <button class="tb-live" id="live" data-act="togglePause" data-t-title="Pause or resume every wallpaper" title="Pause or resume every wallpaper"></button>
-  <div class="win-ctl" id="winctl">
-    <button data-win="min" data-t-title="Minimize" title="Minimize"><svg viewBox="0 0 16 16"><path d="M3.5 8h9"/></svg></button>
-    <button data-win="max" data-t-title="Maximize" title="Maximize"><svg viewBox="0 0 16 16"><rect x="3.5" y="3.5" width="9" height="9" rx="1"/></svg></button>
-    <button data-win="close" class="close" data-t-title="Close (Backdrop keeps running in the tray)" title="Close (Backdrop keeps running in the tray)"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+  <div class="tb-right" data-tauri-drag-region>
+    <button class="tb-live press" id="live" data-act="togglePause" data-t-title="Pause or resume every wallpaper" title="Pause or resume every wallpaper"></button>
+    <div class="win-ctl" id="winctl">
+      <button data-win="min" data-t-title="Minimize" title="Minimize"><svg viewBox="0 0 16 16"><path d="M3.5 8h9"/></svg></button>
+      <button data-win="max" data-t-title="Maximize" title="Maximize"><svg viewBox="0 0 16 16"><rect x="3.5" y="3.5" width="9" height="9" rx="1"/></svg></button>
+      <button data-win="close" class="close" data-t-title="Close (Backdrop keeps running in the tray)" title="Close (Backdrop keeps running in the tray)"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+    </div>
   </div>
 </header>
-<main id="page"></main>
 <div id="drop"><div data-t="Drop to add to your library">Drop to add to your library</div></div>
 <div id="toast"></div>
 <script src="i18n.js"></script>
