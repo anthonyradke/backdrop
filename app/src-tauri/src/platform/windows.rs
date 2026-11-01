@@ -26,7 +26,7 @@ use windows::Win32::System::RemoteDesktop::{
     WTS_CURRENT_SESSION, WTS_SESSIONSTATE_LOCK,
 };
 use windows::Win32::UI::Shell::{
-    DesktopWallpaper, IDesktopWallpaper, DWPOS_CENTER, DWPOS_FILL, DWPOS_FIT, DWPOS_STRETCH,
+    DesktopWallpaper, IDesktopWallpaper, DWPOS_CENTER, DWPOS_FILL, DWPOS_FIT, DWPOS_SPAN, DWPOS_STRETCH,
 };
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -165,42 +165,57 @@ fn rect_eq(r: &RECT, d: &Display) -> bool {
     r.left == d.x && r.top == d.y && r.right - r.left == d.width as i32 && r.bottom - r.top == d.height as i32
 }
 
-pub fn set_image(_app: &AppHandle, d: &Display, path: &Path, fit: Fit) -> Result<(), String> {
-    let d = d.clone();
-    let path = HSTRING::from(path.as_os_str());
+/// Runs `f` on the shell's wallpaper object, on a thread of its own so it can have a COM apartment.
+fn with_wallpaper(f: impl FnOnce(&IDesktopWallpaper) -> Result<(), String> + Send + 'static) -> Result<(), String> {
     std::thread::spawn(move || unsafe {
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-        let result = (|| -> Result<(), String> {
-            let dw: IDesktopWallpaper = CoCreateInstance(&DesktopWallpaper, None, CLSCTX_ALL).map_err(|e| e.to_string())?;
-            let n = dw.GetMonitorDevicePathCount().map_err(|e| e.to_string())?;
-            let mut found = false;
-            for i in 0..n {
-                let Ok(id) = dw.GetMonitorDevicePathAt(i) else { continue };
-                if dw.GetMonitorRECT(PCWSTR(id.0)).is_ok_and(|r| rect_eq(&r, &d)) {
-                    dw.SetWallpaper(PCWSTR(id.0), PCWSTR(path.as_ptr())).map_err(|e| e.to_string())?;
-                    found = true;
-                }
-                CoTaskMemFree(Some(id.0 as *const _));
-            }
-            // The engine turns Height into Cover or Contain before it gets here.
-            let pos = match fit {
-                Fit::Cover | Fit::Height => DWPOS_FILL,
-                Fit::Contain => DWPOS_FIT,
-                Fit::Stretch => DWPOS_STRETCH,
-                Fit::Center => DWPOS_CENTER,
-            };
-            dw.SetPosition(pos).map_err(|e| e.to_string())?;
-            if found {
-                Ok(())
-            } else {
-                Err("display not found".into())
-            }
-        })();
+        let result = CoCreateInstance(&DesktopWallpaper, None, CLSCTX_ALL)
+            .map_err(|e| e.to_string())
+            .and_then(|dw: IDesktopWallpaper| f(&dw));
         CoUninitialize();
         result
     })
     .join()
     .map_err(|_| "wallpaper thread panicked".to_string())?
+}
+
+pub fn set_image(_app: &AppHandle, d: &Display, path: &Path, fit: Fit) -> Result<(), String> {
+    let d = d.clone();
+    let path = HSTRING::from(path.as_os_str());
+    with_wallpaper(move |dw| unsafe {
+        let n = dw.GetMonitorDevicePathCount().map_err(|e| e.to_string())?;
+        let mut found = false;
+        for i in 0..n {
+            let Ok(id) = dw.GetMonitorDevicePathAt(i) else { continue };
+            if dw.GetMonitorRECT(PCWSTR(id.0)).is_ok_and(|r| rect_eq(&r, &d)) {
+                dw.SetWallpaper(PCWSTR(id.0), PCWSTR(path.as_ptr())).map_err(|e| e.to_string())?;
+                found = true;
+            }
+            CoTaskMemFree(Some(id.0 as *const _));
+        }
+        // The engine turns Height into Cover or Contain before it gets here.
+        let pos = match fit {
+            Fit::Cover | Fit::Height => DWPOS_FILL,
+            Fit::Contain => DWPOS_FIT,
+            Fit::Stretch => DWPOS_STRETCH,
+            Fit::Center => DWPOS_CENTER,
+        };
+        dw.SetPosition(pos).map_err(|e| e.to_string())?;
+        if found {
+            Ok(())
+        } else {
+            Err("display not found".into())
+        }
+    })
+}
+
+/// Windows' own Span position: one picture across the whole desktop, on every monitor at once.
+pub fn set_span_image(_app: &AppHandle, path: &Path) -> Result<(), String> {
+    let path = HSTRING::from(path.as_os_str());
+    with_wallpaper(move |dw| unsafe {
+        dw.SetPosition(DWPOS_SPAN).map_err(|e| e.to_string())?;
+        dw.SetWallpaper(PCWSTR::null(), PCWSTR(path.as_ptr())).map_err(|e| e.to_string())
+    })
 }
 
 /// Makes Explorer repaint the wallpaper. Only needed on the pre-24H2 layout, where the WorkerW

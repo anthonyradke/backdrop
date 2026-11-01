@@ -18,7 +18,8 @@ The Windows build is about 5 MB installed, from a 2 MB installer.
 
 - Video (MP4, WebM, MOV), animated GIF and HTML/canvas/WebGL wallpapers rendered behind the desktop icons
 - Still images (JPG, PNG, WebP and others) set through the native wallpaper API
-- A separate wallpaper per display, or one across all displays
+- A separate wallpaper per display, the same one on every display, or one wallpaper spanned across all of
+  them as a single picture
 - Fill, fit, fit-height, stretch and center scaling; playback speed from 0.5× to 2×; optional audio
 - A full-resolution frame of each moving wallpaper is set as the Windows wallpaper, so the desktop matches
   it before Backdrop starts
@@ -65,7 +66,8 @@ scripts/       Windows build script
 ### Desktop app
 
 Each display showing a moving wallpaper gets one borderless WebView window that plays it with hardware
-video decoding. A one-second engine loop (`engine.rs`) assigns players to displays, applies native image
+video decoding. A spanned wallpaper gets a single window over the rectangle around all displays, so it
+needs one decoder and stays in sync across them. A one-second engine loop (`engine.rs`) assigns players to displays, applies native image
 wallpapers, and handles pausing.
 
 #### Desktop attachment (`platform/windows.rs`)
@@ -160,6 +162,8 @@ cargo test --workspace
 - The still frame covers the desktop wallpaper only. The lock screen keeps its own image.
 - With mixed display scaling, the player on a secondary display renders at the primary display's
   scale. Video still fills the screen but may appear slightly softer.
+- A spanned still image uses the Windows *Span* position, which ignores the Fit setting. Spanned video and
+  HTML wallpapers follow it, measured against the rectangle around all displays.
 - HTML wallpapers cannot be paused externally. The player posts `{ backdrop: { paused, muted, volume, speed } }`
   to the page; pages that listen for this message can stop their own animation loop.
 - Codec detection reads MP4 and MOV headers only; other formats show no codec.

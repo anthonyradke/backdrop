@@ -2,7 +2,7 @@
 //! "Next wallpaper". Picks come from the rotation list (or the whole library when it's empty).
 
 use crate::config::Order;
-use crate::engine::read_displays;
+use crate::engine::{read_displays, SPAN_KEY};
 use crate::{common, log, Core};
 use std::collections::{BTreeMap, HashSet};
 use std::hash::{BuildHasher, Hasher};
@@ -55,17 +55,28 @@ pub async fn advance(app: &AppHandle, why: Why) -> Result<(), String> {
     if pool.is_empty() {
         return Err("nothing to rotate through".into());
     }
-    let mut keys: Vec<String> = core.displays.lock().unwrap().iter().map(|d| d.display.key.clone()).collect();
-    if keys.is_empty() {
-        keys = read_displays(app).into_iter().map(|d| d.key).collect();
-    }
     let shuffle = matches!(why, Why::Start | Why::Wake) || cfg.rotation.order == Order::Shuffle;
-    let picks = plan(&pool, &cfg.assignments, &keys, cfg.rotation.per_display, shuffle, rand_below);
-    core.update_config(|c| {
-        for (k, id) in picks {
-            c.assignments.insert(k, id);
+    if let Some(cur) = cfg.span {
+        // A spanned wallpaper changes as one and stays spanned.
+        let current = BTreeMap::from([(SPAN_KEY.to_string(), cur)]);
+        let picks = plan(&pool, &current, &[SPAN_KEY.to_string()], false, shuffle, rand_below);
+        core.update_config(|c| {
+            if let Some((_, id)) = picks.into_iter().next() {
+                c.span = Some(id);
+            }
+        });
+    } else {
+        let mut keys: Vec<String> = core.displays.lock().unwrap().iter().map(|d| d.display.key.clone()).collect();
+        if keys.is_empty() {
+            keys = read_displays(app).into_iter().map(|d| d.key).collect();
         }
-    });
+        let picks = plan(&pool, &cfg.assignments, &keys, cfg.rotation.per_display, shuffle, rand_below);
+        core.update_config(|c| {
+            for (k, id) in picks {
+                c.assignments.insert(k, id);
+            }
+        });
+    }
     *core.rotated_at.lock().unwrap() = Instant::now();
     Ok(())
 }

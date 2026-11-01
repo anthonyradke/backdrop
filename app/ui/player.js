@@ -1,5 +1,6 @@
-// One of these runs per display. It shows whatever the engine says (player_init on load, then
-// player:update events) and crossfades when the wallpaper changes.
+// One of these runs per display, or one for all of them when a wallpaper is spanned. It shows
+// whatever the engine says (player_init on load, then player:update events) and crossfades when
+// the wallpaper changes.
 const { invoke, convertFileSrc } = window.__TAURI__.core;
 const me = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
 
@@ -139,7 +140,12 @@ function show(p) {
   if (!p) return;
   if (!cur || cur.src !== p.src || cur.kind !== p.kind) swap(p);
   cur = p;
-  document.getElementById("shade").className = p.shade || "";
+  document.getElementById("shades").replaceChildren(...p.shade.map((s) => {
+    const strip = document.createElement("div");
+    strip.className = "shade";
+    strip.style.cssText = `left:${s.left}%;width:${s.width}%;bottom:${s.bottom}%`;
+    return strip;
+  }));
   applyFit(p);
   capture(p);
   if (el.tagName === "VIDEO") {

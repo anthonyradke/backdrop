@@ -139,6 +139,7 @@ function entries() {
 
 const pool = () => S.state?.config.rotation.pool ?? [];
 const inRotation = (id) => pool().includes(id);
+const spanned = () => S.state?.config.span ?? null;
 
 function thumbUrl(e) {
   return e.thumb ? mediaUrl(`${e.id}/thumb.jpg`) + `?v=${S.thumbVer[e.id] ?? 0}` : null;
@@ -311,6 +312,7 @@ const actions = {
   setOn: async (el) => {
     await call("set_wallpaper", { id: el.dataset.id, display: el.dataset.display });
   },
+  setSpan: (el) => call("span_wallpaper", { id: el.dataset.id }),
   rotation: (el) => call("set_in_rotation", { id: el.dataset.id, on: !inRotation(el.dataset.id) }),
   next: () => call("next_wallpaper"),
   remove: async (el) => {
@@ -319,7 +321,7 @@ const actions = {
     await call("delete_local", { id: e.id });
     if (S.sel === e.id) S.sel = null;
   },
-  clearDisplay: (el) => call("clear_wallpaper", { display: el.dataset.display }),
+  clearDisplay: (el) => call("clear_wallpaper", { display: el.dataset.display ?? null }),
   togglePause: () => call("set_paused", { paused: !S.state.paused }),
   fit: (el) => setting({ fit: el.dataset.v }),
   muted: (el) => setting({ muted: on(el) }),
@@ -573,14 +575,14 @@ function heroHtml(e) {
     ${previewing ? `<video class="hero-video" data-key="hv-${e.id}-${S.videoViaLoopback ? "l" : "m"}" src="${esc(videoUrl(`${e.id}/${e.file}`))}" autoplay muted loop playsinline onerror="mediaVideoFailed()"></video>` : ""}
     <div class="hero-info" data-key="hn-${e.id}">
       <div class="kick">${live.length
-        ? `<span class="dot ${live[0].status}"></span>${esc(tr("Showing on {names}", { names: live.map((d) => d.name).join(", ") }))}`
+        ? `<span class="dot ${live[0].status}"></span>${esc(spanned() === e.id ? tr("Spanning all displays") : tr("Showing on {names}", { names: live.map((d) => d.name).join(", ") }))}`
         : `${ICON.library}${tr("In your library")}`}</div>
       <input class="name-in" data-id="${e.id}" data-orig="${esc(e.name)}" value="${esc(e.name)}" spellcheck="false" title="${esc(tr("Rename"))}">
       <div class="hero-meta">${esc(meta)}</div>
       ${cantPlayHere(e) ? `<div class="warn">${tr("Windows can't play {codec} video. Convert it to H.264 (HandBrake works) and add that instead.", { codec: codecName(e.codec) })}</div>` : ""}
       <div class="hero-acts">
         <button class="btn pri big press" data-act="setAll" data-id="${e.id}">${ICON.play}${displays.length > 1 ? tr("Set on all displays") : tr("Set as wallpaper")}</button>
-        ${displays.length > 1 ? `<div class="where">${displays.map((d) => `<button class="press ${d.item === e.id ? "on" : ""}" data-act="setOn" data-id="${e.id}" data-display="${esc(d.key)}" title="${esc(tr("Only {name}", { name: d.name }))}">${esc(d.name)}</button>`).join("")}</div>` : ""}
+        ${displays.length > 1 ? `<div class="where">${displays.map((d) => `<button class="press ${d.item === e.id && !spanned() ? "on" : ""}" data-act="setOn" data-id="${e.id}" data-display="${esc(d.key)}" title="${esc(tr("Only {name}", { name: d.name }))}">${esc(d.name)}</button>`).join("")}<button class="press ${spanned() === e.id ? "on" : ""}" data-act="setSpan" data-id="${e.id}" title="${esc(tr("One wallpaper stretched across all your displays"))}">${tr("Span all displays")}</button></div>` : ""}
         ${canPreview ? icon(previewing ? tr("Stop preview") : tr("Preview"), "preview", previewing ? ICON.stop : ICON.play, previewing ? "on" : "") : ""}
         ${icon(rot ? tr("In rotation (click to remove)") : tr("Add to rotation"), "rotation", ICON.cycle, rot ? "on" : "")}
         ${icon(tr("Remove from the library"), "remove", ICON.trash)}
@@ -799,8 +801,9 @@ function renderDisplays() {
     map = `<div class="arrangement" style="--ratio:${(w / h).toFixed(4)}">${ds.map((d) => {
       const e = d.item && byId.get(d.item);
       const t = e && posterUrl(e);
-      return `<div class="screen" style="left:${pct(d.x - minX, w, 3)};top:${pct(d.y - minY, h, 3)};width:${pct(d.width, w, -6)};height:${pct(d.height, h, -6)};${t ? `background-image:url('${t}')` : ""}">
-        <span class="pill"><span class="dot ${d.status}"></span>${esc(d.name)}${d.primary ? ` · ${tr("main")}` : ""}</span></div>`;
+      const art = t && spanned() ? `<img class="span-art" src="${esc(t)}" draggable="false" style="left:${(-(d.x - minX) / d.width * 100).toFixed(3)}%;top:${(-(d.y - minY) / d.height * 100).toFixed(3)}%;width:${(w / d.width * 100).toFixed(3)}%;height:${(h / d.height * 100).toFixed(3)}%">` : "";
+      return `<div class="screen" style="left:${pct(d.x - minX, w, 3)};top:${pct(d.y - minY, h, 3)};width:${pct(d.width, w, -6)};height:${pct(d.height, h, -6)};${t && !spanned() ? `background-image:url('${t}')` : ""}">
+        ${art}<span class="pill"><span class="dot ${d.status}"></span>${esc(d.name)}${d.primary ? ` · ${tr("main")}` : ""}</span></div>`;
     }).join("")}</div>`;
   }
   const status = (d) =>
@@ -808,15 +811,19 @@ function renderDisplays() {
     : d.status === "paused" ? tr(REASON[d.reason] ?? "Paused")
     : d.status === "image" ? tr("Still image (set as the system wallpaper)")
     : tr("Nothing set");
-  const rows = ds.map((d) => {
+  const drow = (d, title, sub, clearAttr) => {
     const e = d.item && byId.get(d.item);
     const t = e && thumbUrl(e);
     return `<div class="drow">
-      <div><h3>${esc(d.name)}</h3><div class="sub">${d.width}×${d.height}${d.scale !== 1 ? ` · ${Math.round(d.scale * 100)}%` : ""}${d.primary ? ` · ${tr("main display")}` : ""}</div></div>
+      <div><h3>${esc(title)}</h3><div class="sub">${sub}</div></div>
       <div class="now">${e ? (t ? `<img src="${esc(t)}" draggable="false">` : placeholder(e)) : ""}<div class="what"><div>${e ? esc(e.name) : ""}</div><div class="hint">${esc(status(d))}</div></div></div>
-      <div>${d.item ? `<button class="btn sm press" data-act="clearDisplay" data-display="${esc(d.key)}">${tr("Clear")}</button>` : ""}</div>
+      <div>${d.item ? `<button class="btn sm press" data-act="clearDisplay" ${clearAttr}>${tr("Clear")}</button>` : ""}</div>
     </div>`;
-  }).join("");
+  };
+  // A spanned wallpaper is one thing on every display, so it gets one row and Clear takes it off all of them.
+  const rows = spanned() && ds.length
+    ? drow(ds[0], tr("All displays"), esc(tr("{n} displays", { n: ds.length })), "")
+    : ds.map((d) => drow(d, d.name, `${d.width}×${d.height}${d.scale !== 1 ? ` · ${Math.round(d.scale * 100)}%` : ""}${d.primary ? ` · ${tr("main display")}` : ""}`, `data-display="${esc(d.key)}"`)).join("");
   return `<div class="page" data-key="p-displays">
     <header class="head"><h1>${tr("Displays")}</h1>
       <p>${tr("Choose wallpapers in the Library. Still images are handed to {os} as the normal wallpaper, so they cost nothing to show. Videos and HTML play behind your desktop icons and pause when they're covered.", { os: "Windows" })}</p></header>
@@ -869,7 +876,7 @@ function renderSettings() {
       row(tr("Change wallpaper"), "",
         seg("rotMinutes", r.minutes, [["0", tr("Never")], ["15", tr("15 min")], ["30", tr("30 min")], ["60", tr("1 hour")], ["180", tr("3 hours")], ["1440", tr("1 day")]])),
       row(tr("Order"), "", seg("rotOrder", r.order, [["sequential", tr("In order")], ["shuffle", tr("Shuffle")]])),
-      S.state.displays.length > 1 ? row(tr("Displays"), "", seg("rotPerDisplay", r.perDisplay ? "1" : "0", [["0", tr("Same on all")], ["1", tr("Different on each")]])) : "",
+      S.state.displays.length > 1 && !c.span ? row(tr("Displays"), "", seg("rotPerDisplay", r.perDisplay ? "1" : "0", [["0", tr("Same on all")], ["1", tr("Different on each")]])) : "",
       row(tr("Random at startup"), tr("Picks a random wallpaper each time Backdrop starts."), offOn("rotOnStart", r.onStart)),
       row(tr("Random after waking"), tr("Picks a random wallpaper when the computer wakes from sleep, for example when you open the lid."), offOn("rotOnWake", r.onWake)),
       row(tr("Next wallpaper"), tr("Also in the {tray} menu.", { tray: trayName() }), `<button class="btn sm press" data-act="next">${ICON.cycle}${tr("Next")}</button>`),

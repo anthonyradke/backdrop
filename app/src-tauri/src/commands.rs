@@ -142,7 +142,10 @@ pub fn rename_item(core: State<'_, Core>, id: String, name: String) -> Result<()
 
 #[tauri::command]
 pub fn delete_local(core: State<'_, Core>, id: String) {
-    core.update_config(|c| c.assignments.retain(|_, v| *v != id));
+    core.update_config(|c| {
+        c.assignments.retain(|_, v| *v != id);
+        c.span.take_if(|v| *v == id);
+    });
     core.library.lock().unwrap().remove(&id);
     core.emit_state();
 }
@@ -170,10 +173,21 @@ pub fn set_wallpaper(
         }
     };
     core.update_config(|c| {
+        c.span = None;
         for k in keys {
             c.assignments.insert(k, id.clone());
         }
     });
+    Ok(())
+}
+
+/// Stretches one wallpaper across all the displays as a single picture.
+#[tauri::command]
+pub fn span_wallpaper(core: State<'_, Core>, id: String) -> Result<(), String> {
+    if !core.library.lock().unwrap().items.contains_key(&id) {
+        return Err("not in the library".into());
+    }
+    core.update_config(|c| c.span = Some(id));
     Ok(())
 }
 
@@ -183,7 +197,10 @@ pub fn clear_wallpaper(core: State<'_, Core>, display: Option<String>) {
         Some(k) => {
             c.assignments.remove(&k);
         }
-        None => c.assignments.clear(),
+        None => {
+            c.assignments.clear();
+            c.span = None;
+        }
     });
 }
 

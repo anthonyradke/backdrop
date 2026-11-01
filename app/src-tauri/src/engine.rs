@@ -1,6 +1,7 @@
 //! The engine thread: once a second (or when poked) it reads the displays, makes sure every display
 //! with a wallpaper has a player window behind the desktop icons (or a native OS wallpaper for still
-//! images), closes windows nobody needs, and pauses players that can't be seen.
+//! images), closes windows nobody needs, and pauses players that can't be seen. A spanned wallpaper
+//! goes through the same steps once, with the rectangle around all the displays as its one display.
 
 use crate::config::Fit;
 use crate::{log, platform, Core};
@@ -58,12 +59,20 @@ pub struct PlayerParams {
     pub volume: f64,
     pub speed: f64,
     pub paused: bool,
-    /// Where to darken a strip for the taskbar: `top`, `bottom`, or none.
-    pub shade: Option<&'static str>,
+    /// Strips to darken for the taskbars, one per display the window covers; empty for none.
+    pub shade: Vec<Strip>,
     /// Item id to capture a full-size still frame of (for the system wallpaper), when it has none yet.
     pub capture: Option<String>,
     /// Loopback server base URL, tried when a video fails over media://.
     pub fallback: Option<String>,
+}
+
+/// A taskbar strip along the bottom of a display, in percent of the player window.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Strip {
+    pub left: f64,
+    pub width: f64,
+    pub bottom: f64,
 }
 
 struct Slot {
@@ -142,6 +151,47 @@ pub fn native_fit(fit: Fit, size: (Option<u32>, Option<u32>), d: &Display) -> Fi
 
 /// The full-size frame of a moving wallpaper that stands in as the system wallpaper.
 pub const FRAME: &str = "frame.jpg";
+
+/// The key a spanned wallpaper uses in place of a display's.
+pub const SPAN_KEY: &str = "all-displays";
+
+/// The rectangle around every display, which is what a spanned wallpaper fills. In an uneven
+/// arrangement the parts of it no display shows just go unseen.
+fn span_rect(displays: &[Display]) -> Display {
+    let x = displays.iter().map(|d| d.x).min().unwrap_or(0);
+    let y = displays.iter().map(|d| d.y).min().unwrap_or(0);
+    let right = displays.iter().map(|d| d.x + d.width as i32).max().unwrap_or(0);
+    let bottom = displays.iter().map(|d| d.y + d.height as i32).max().unwrap_or(0);
+    Display {
+        key: SPAN_KEY.into(),
+        name: "All displays".into(),
+        x,
+        y,
+        width: (right - x) as u32,
+        height: (bottom - y) as u32,
+        // A child of the desktop window renders at the primary display's scale.
+        scale: displays.iter().find(|d| d.primary).or(displays.first()).map_or(1.0, |d| d.scale),
+        primary: true,
+    }
+}
+
+/// The one view of a spanned wallpaper, repeated for each display it's on.
+fn span_views(views: Vec<DisplayView>, displays: &[Display]) -> Vec<DisplayView> {
+    let Some(all) = views.into_iter().next() else { return vec![] };
+    displays.iter().map(|d| DisplayView { display: d.clone(), ..all.clone() }).collect()
+}
+
+fn strips(win: &Display, screens: &[Display]) -> Vec<Strip> {
+    let (w, h) = (win.width as f64, win.height as f64);
+    screens
+        .iter()
+        .map(|s| Strip {
+            left: (s.x - win.x) as f64 / w * 100.0,
+            width: s.width as f64 / w * 100.0,
+            bottom: (win.y + win.height as i32 - s.y - s.height as i32) as f64 / h * 100.0,
+        })
+        .collect()
+}
 
 pub fn label_for(key: &str) -> String {
     // FNV-1a: labels may only hold a few characters, and display names hold anything.
@@ -226,7 +276,7 @@ impl Engine {
         let cfg = core.config.lock().unwrap().clone();
         let (root, items): (_, HashMap<String, Item>) = {
             let lib = core.library.lock().unwrap();
-            let wanted: HashSet<&String> = cfg.assignments.values().collect();
+            let wanted: HashSet<&String> = cfg.assignments.values().chain(&cfg.span).collect();
             (
                 lib.root.clone(),
                 lib.items.iter().filter(|(id, _)| wanted.contains(id)).map(|(k, v)| (k.clone(), v.clone())).collect(),
@@ -252,13 +302,14 @@ impl Engine {
         let locked = cfg.pause_locked && platform::locked();
         let focused =
             if cfg.pause_focused && !self.slots.is_empty() { platform::focused(&self.app, &displays) } else { HashSet::new() };
-        let shade = cfg.shade_bar.then_some("bottom");
+        let spanning = cfg.span.is_some();
+        let targets = if spanning { vec![span_rect(&displays)] } else { displays.clone() };
 
-        let mut views = Vec::with_capacity(displays.len());
+        let mut views = Vec::with_capacity(targets.len());
         let mut wanted: HashSet<String> = HashSet::new();
         let mut native_now: HashSet<String> = HashSet::new();
-        for d in &displays {
-            let assigned = cfg.assignments.get(&d.key).cloned();
+        for d in &targets {
+            let assigned = cfg.span.as_ref().or(cfg.assignments.get(&d.key)).cloned();
             let mut status = Status::Idle;
             let mut reason = None;
             if let Some(item) = assigned.as_ref().and_then(|id| items.get(id)) {
@@ -276,7 +327,12 @@ impl Engine {
                     let fit = native_fit(cfg.fit, (item.width, item.height), d);
                     let want = (native_id, fit);
                     if self.native.get(&d.key) != Some(&want) {
-                        match platform::set_image(&self.app, d, &path, fit) {
+                        let set = if spanning {
+                            platform::set_span_image(&self.app, &path)
+                        } else {
+                            platform::set_image(&self.app, d, &path, fit)
+                        };
+                        match set {
                             Ok(()) => {
                                 self.native.insert(d.key.clone(), want);
                             }
@@ -297,7 +353,8 @@ impl Engine {
                         (cfg.pause_battery && self.on_battery, "battery"),
                         (cfg.pause_low_power && self.low_power, "lowPower"),
                         (cfg.pause_covered && self.covered.contains(&d.key), "covered"),
-                        (focused.contains(&d.key), "focused"),
+                        // A spanned wallpaper is on every display, so any app in front counts.
+                        (if spanning { !focused.is_empty() } else { focused.contains(&d.key) }, "focused"),
                     ]
                     .into_iter()
                     .find(|(on, _)| *on)
@@ -312,7 +369,13 @@ impl Engine {
                         volume: cfg.volume.clamp(0.0, 1.0),
                         speed: cfg.speed.clamp(0.25, 2.0),
                         paused,
-                        shade,
+                        shade: if !cfg.shade_bar {
+                            vec![]
+                        } else if spanning {
+                            strips(d, &displays)
+                        } else {
+                            strips(d, std::slice::from_ref(d))
+                        },
                         capture: (wants_frame && !frame.is_file()).then(|| item.id.clone()),
                         fallback: core.loopback.clone(),
                     };
@@ -327,6 +390,7 @@ impl Engine {
             views.push(DisplayView { display: d.clone(), item: assigned, status, reason });
         }
         self.native.retain(|k, _| native_now.contains(k));
+        let views = if spanning { span_views(views, &displays) } else { views };
 
         let stale: Vec<String> = self.slots.keys().filter(|k| !wanted.contains(*k)).cloned().collect();
         for key in stale {
@@ -345,7 +409,17 @@ impl Engine {
             .iter()
             .filter_map(|(k, s)| self.app.get_webview_window(&s.label).map(|w| (k.clone(), w, s.display.clone())))
             .collect();
-        let covered = if cfg.pause_covered && !wins.is_empty() { platform::covered(&self.app, &wins) } else { HashSet::new() };
+        // The spanned player is checked against each display: it's covered once they all are.
+        let checks: Vec<(String, WebviewWindow, Display)> = if spanning {
+            wins.iter().flat_map(|(_, w, _)| displays.iter().map(|d| (d.key.clone(), w.clone(), d.clone()))).collect()
+        } else {
+            wins
+        };
+        let mut covered =
+            if cfg.pause_covered && !checks.is_empty() { platform::covered(&self.app, &checks) } else { HashSet::new() };
+        if spanning {
+            covered = if covered.len() == displays.len() { HashSet::from([SPAN_KEY.to_string()]) } else { HashSet::new() };
+        }
         let covered_changed = covered != self.covered;
         if covered_changed {
             let mut keys: Vec<&String> = covered.iter().collect();
@@ -435,6 +509,42 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn screen(key: &str, x: i32, y: i32, width: u32, height: u32) -> Display {
+        Display { key: key.into(), name: key.into(), x, y, width, height, scale: 1.0, primary: x == 0 && y == 0 }
+    }
+
+    #[test]
+    fn span_covers_every_display() {
+        // A shorter screen to the left of the primary, so the rectangle starts at negative x.
+        let ds = [screen("a", -1920, 180, 1920, 1080), screen("b", 0, 0, 2560, 1440)];
+        let r = span_rect(&ds);
+        assert_eq!((r.x, r.y, r.width, r.height), (-1920, 0, 4480, 1440));
+        assert_eq!(r.key, SPAN_KEY);
+
+        let mut scaled = ds.clone();
+        scaled[1].scale = 1.5;
+        assert_eq!(span_rect(&scaled).scale, 1.5);
+    }
+
+    #[test]
+    fn every_display_reports_the_spanned_wallpaper() {
+        let ds = [screen("a", 0, 0, 1920, 1080), screen("b", 1920, 0, 1920, 1080)];
+        let all = DisplayView { display: span_rect(&ds), item: Some("x".into()), status: Status::Paused, reason: Some("covered") };
+        let views = span_views(vec![all], &ds);
+        assert_eq!(views.iter().map(|v| v.display.key.as_str()).collect::<Vec<_>>(), ["a", "b"]);
+        assert!(views.iter().all(|v| v.item.as_deref() == Some("x") && v.status == Status::Paused && v.reason == Some("covered")));
+    }
+
+    #[test]
+    fn shade_follows_each_display() {
+        let ds = [screen("a", -1920, 0, 1920, 1080), screen("b", 0, 0, 1920, 2160)];
+        let s = strips(&span_rect(&ds), &ds);
+        assert_eq!(s[0], Strip { left: 0.0, width: 50.0, bottom: 50.0 });
+        assert_eq!(s[1], Strip { left: 50.0, width: 50.0, bottom: 0.0 });
+        // A window on one display gets the whole width of its bottom edge.
+        assert_eq!(strips(&ds[1], &ds[1..]), vec![Strip { left: 0.0, width: 100.0, bottom: 0.0 }]);
+    }
 
     #[test]
     fn labels_are_valid_and_stable() {

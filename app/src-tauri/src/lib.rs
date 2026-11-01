@@ -409,6 +409,7 @@ pub fn run() {
             commands::rename_item,
             commands::delete_local,
             commands::set_wallpaper,
+            commands::span_wallpaper,
             commands::clear_wallpaper,
             commands::update_settings,
             commands::set_paused,

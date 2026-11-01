@@ -25,6 +25,10 @@ pub fn set_image(_app: &AppHandle, _d: &Display, _path: &Path, _fit: Fit) -> Res
     Err("not supported on this OS".into())
 }
 
+pub fn set_span_image(_app: &AppHandle, _path: &Path) -> Result<(), String> {
+    Err("not supported on this OS".into())
+}
+
 pub fn covered(_app: &AppHandle, _wins: &[(String, WebviewWindow, Display)]) -> HashSet<String> {
     HashSet::new()
 }

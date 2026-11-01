@@ -9,12 +9,12 @@
            opacity: 0; transition: opacity .6s ease; object-fit: cover; background: #000; }
   .layer.on { opacity: 1; }
   /* Keeps the taskbar readable over bright wallpapers. */
-  #shade { position: fixed; left: 0; right: 0; height: 110px; pointer-events: none; z-index: 2; display: none; }
-  #shade.bottom { display: block; bottom: 0; background: linear-gradient(transparent, rgba(0,0,0,.3) 60px, rgba(0,0,0,.55)); }
+  .shade { position: fixed; height: 110px; pointer-events: none; z-index: 2;
+           background: linear-gradient(transparent, rgba(0,0,0,.3) 60px, rgba(0,0,0,.55)); }
 </style>
 </head>
 <body>
-<div id="shade"></div>
+<div id="shades"></div>
 <script src="player.js"></script>
 </body>
 </html>

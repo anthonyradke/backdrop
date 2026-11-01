@@ -50,6 +50,9 @@ impl Default for Rotation {
 pub struct Config {
     /// Display key -> item id.
     pub assignments: BTreeMap<String, String>,
+    /// Item id stretched across all the displays as one picture. Takes over from `assignments`,
+    /// which come back when it's turned off.
+    pub span: Option<String>,
     pub fit: Fit,
     pub muted: bool,
     /// 0.0 - 1.0
@@ -78,6 +81,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             assignments: BTreeMap::new(),
+            span: None,
             fit: Fit::Cover,
             muted: true,
             volume: 0.5,
@@ -122,5 +126,6 @@ mod tests {
         assert_eq!((c.speed, c.rotation.minutes, c.rotation.order), (1.0, 0, Order::Shuffle));
         let c: Config = serde_json::from_str(r#"{"fit":"height","rotation":{"minutes":30}}"#).unwrap();
         assert_eq!((c.fit, c.rotation.minutes, c.rotation.on_wake), (Fit::Height, 30, false));
+        assert_eq!(c.span, None);
     }
 }
