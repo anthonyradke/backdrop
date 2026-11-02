@@ -231,7 +231,7 @@ function uploadLevel(scene, format, level, m) {
 }
 
 function setUniform(gl, u, v) {
-  const n = Array.isArray(v) ? v : [v];
+  const n = Array.isArray(v) || ArrayBuffer.isView(v) ? v : [v];
   switch (u.type) {
     case gl.FLOAT: u.size > 1 ? gl.uniform1fv(u.loc, n) : gl.uniform1f(u.loc, n[0] ?? 0); break;
     case gl.FLOAT_VEC2: gl.uniform2fv(u.loc, fill(n, 2 * u.size)); break;

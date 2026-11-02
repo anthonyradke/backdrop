@@ -8,8 +8,8 @@
 
 ---
 
-Backdrop plays videos, animated GIFs and HTML pages behind the desktop icons. Still images are passed to
-the operating system as a regular wallpaper, so they use no resources once set.
+Backdrop plays videos, animated GIFs, HTML pages and Wallpaper Engine scenes behind the desktop icons. Still
+images are passed to the operating system as a regular wallpaper, so they use no resources once set.
 
 The app is built on [Tauri 2](https://tauri.app) and uses the system WebView instead of a bundled browser.
 The Windows build is about 5 MB installed, from a 2 MB installer.
@@ -17,6 +17,8 @@ The Windows build is about 5 MB installed, from a 2 MB installer.
 ## Features
 
 - Video (MP4, WebM, MOV), animated GIF and HTML/canvas/WebGL wallpapers rendered behind the desktop icons
+- Wallpaper Engine scene wallpapers (`scene.pkg`): image layers, shader effects, puppets, particles, text,
+  sound, audio visualizers, cursor effects and SceneScript, rendered with WebGL2
 - Still images (JPG, PNG, WebP and others) set through the native wallpaper API
 - A separate wallpaper per display, the same one on every display, or one wallpaper spanned across all of
   them as a single picture
@@ -29,8 +31,9 @@ The Windows build is about 5 MB installed, from a 2 MB installer.
   battery saver on, and while the screen is locked
 - Resolution badges (4K, 1440p, 1080p) and codec details for each item, with a warning on HEVC and ProRes
   files, which Windows can't play
-- A Workshop tab for browsing video and HTML wallpapers from the Wallpaper Engine Steam Workshop, with
-  anime left out; Steam downloads them in the background and Backdrop adds them to the library
+- A Workshop tab for browsing video, scene and HTML wallpapers from the Wallpaper Engine Steam Workshop, with
+  anime left out; Steam downloads them in the background and Backdrop adds them to the library. Everything
+  already subscribed to in Steam can be added too, unfiltered
 - Drag-and-drop import; HTML wallpapers can be a folder with an `index.html`, a `.zip` of one, or a single
   `.html` file
 - Interface in English, Spanish, German and Simplified Chinese
@@ -69,6 +72,24 @@ Each display showing a moving wallpaper gets one borderless WebView window that 
 video decoding. A spanned wallpaper gets a single window over the rectangle around all displays, so it
 needs one decoder and stays in sync across them. A one-second engine loop (`engine.rs`) assigns players to displays, applies native image
 wallpapers, and handles pausing.
+
+#### Scenes (`scene.rs`, `audio.rs`, `app/ui/scene/`)
+
+`scene.rs` unpacks a `scene.pkg` into the library. The renderer runs in the player page:
+
+- `tex.js` reads `.tex` textures (raw, LZ4, DXT, BC7, embedded PNG/JPEG, frame sheets, MP4)
+- `shader.js` translates Wallpaper Engine's shaders to GLSL ES 3.00 with its own preprocessor, then repairs
+  what the compiler rejects from its error messages, since they rely on HLSL's and desktop GL's loose typing
+- `scene.js` holds the layers, effect chains, framebuffers, keyframes, parallax and bloom
+- `puppet.js` reads `.mdl` meshes and skeletons, `particles.js` simulates particle systems, `text.js` draws
+  text and plays sound
+- `script.js` runs SceneScript in a Worker with no network access or access to the app's commands
+
+Stock shaders, effects and script classes aren't part of a wallpaper or of Backdrop. They are read from
+Wallpaper Engine's install through `media://we-assets/`, so it has to stay installed. An effect that fails is
+skipped and logged to `backdrop.log`; a scene that can't run at all shows its preview image. `audio.rs` turns
+the system's output (WASAPI loopback) into frequency bands only while a scene that needs them is on screen,
+and keeps no audio.
 
 #### Desktop attachment (`platform/windows.rs`)
 
@@ -167,6 +188,11 @@ cargo test --workspace
 - HTML wallpapers cannot be paused externally. The player posts `{ backdrop: { paused, muted, volume, speed } }`
   to the page; pages that listen for this message can stop their own animation loop.
 - Codec detection reads MP4 and MOV headers only; other formats show no codec.
+- Scene wallpapers run at 30 fps and need Wallpaper Engine installed for its stock assets. Not supported: 3D
+  scenes with a perspective camera, models and scene lighting; application wallpapers, which would mean running
+  downloaded programs; clicks, since wallpapers sit behind the icons; song title and album art. In SceneScript,
+  timelines started from a script don't play. The `boids`, `remapvalue` and `maintaindistance` particle operators
+  are skipped.
 - Workshop downloads need Steam and a copy of Wallpaper Engine, which has to stay installed (it doesn't have
   to run). The anime filter relies on how uploaders tag and title their items, so some still get through.
 
