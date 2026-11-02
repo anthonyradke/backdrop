@@ -695,6 +695,8 @@ WE.Scene = class {
     if (this.textures.has(name)) return this.textures.get(name);
     const p = (async () => {
       if (name.startsWith("_rt_") || name.startsWith("_alias_")) return { rt: name };
+      // $mediaThumbnail and friends come from the music player integration, which isn't here.
+      if (name.startsWith("$")) return this.black;
       const path = name.endsWith(".tex") ? name : `materials/${name}.tex`;
       const bytes = await this.assets.bytes(path);
       if (!bytes) { this.warn(`texture ${name} not found`); return this.white; }

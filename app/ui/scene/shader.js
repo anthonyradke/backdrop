@@ -225,12 +225,54 @@ function looseWrappers(names) {
 
 // Compiles a shader, repairing the lines the compiler objects to (nearly always an int where ES
 // wants a float) and falling back to converting every literal.
+// HLSL truncates vectors on assignment; GLSL only does it through a constructor.
+function narrowAssignment(line, types) {
+  const m = line.match(/^(\s*)(?:(const)\s+)?(?:(vec[234]|float|int|uint)\s+)?(\w+)\s*(=)\s*([^=].*);\s*$/);
+  if (!m) return line;
+  const ty = m[3] || types[m[4]];
+  if (!ty || m[6].startsWith(`${ty}(`)) return line;
+  return `${m[1]}${m[2] ? "const " : ""}${m[3] ? `${m[3]} ` : ""}${m[4]} = ${ty}(${m[6]});`;
+}
+
+// `%` works on floats in HLSL.
+function moduloFloat(line) {
+  if (!line.includes("%")) return line;
+  return line.replace(/(\([^()]*\)|[\w.]+)\s*%\s*(\([^()]*\)|[\w.]+)/g, "uint(mod(float($1), float($2)))");
+}
+
+// So does adding a comparison to a number.
+function boolToFloat(line) {
+  return line.replace(/([-+]=)\s*([^;]*(?:<|>)[^;]*);/, "$1 float($2);");
+}
+
+// A branch that falls off the end returns nothing, which ES refuses outright.
+function addReturn(lines, name) {
+  const at = lines.findIndex((l) => new RegExp(`^\\s*(vec[234]|float|int|bool)\\s+${name}\\s*\\(`).test(l));
+  if (at < 0) return false;
+  const type = lines[at].trim().split(/\s+/)[0];
+  let depth = 0, opened = false;
+  for (let i = at; i < lines.length; i++) {
+    for (const c of lines[i]) {
+      if (c === "{") { depth++; opened = true; } else if (c === "}") depth--;
+    }
+    if (opened && depth === 0) {
+      const end = lines[i].lastIndexOf("}");
+      lines[i] = `${lines[i].slice(0, end)}return ${type}(0);${lines[i].slice(end)}`;
+      return true;
+    }
+  }
+  return false;
+}
+
 function compileWithFixes(gl, type, body, prefix) {
   let head = `#version 300 es\n${prefix}`;
   let headerLines = head.split("\n").length - 1;
   const wrapped = new Set();
   const wide = new Set([...body.matchAll(/^\s*varying\s+vec[34]\s+(\w+)\s*;/gm)].map((m) => m[1]));
   const ints = new Set([...body.matchAll(/\b(?:const\s+)?(?:int|uint)\s+(\w+)\s*[=;]/g)].map((m) => m[1]));
+  for (const m of (prefix + body).matchAll(/^\s*#\s*define\s+(\w+)\s+\d+\s*$/gm)) ints.add(m[1]);
+  const types = {};
+  for (const m of body.matchAll(/\b(vec[234]|float|int|uint)\s+(\w+)\s*[=;,)]/g)) types[m[2]] = m[1];
   const attempt = (src) => {
     const s = gl.createShader(type);
     gl.shaderSource(s, head + src);
@@ -256,9 +298,17 @@ function compileWithFixes(gl, type, body, prefix) {
       headerLines = head.split("\n").length - 1;
       continue;
     }
+    for (const m of last.matchAll(/'(\w+)' : Function does not return a value/g)) {
+      const fixedSrc = addReturn(lines, m[1]);
+      if (fixedSrc) changed = true;
+    }
+    if (changed) { src = lines.join("\n"); continue; }
     for (const n of errorLines(last, headerLines)) {
       if (lines[n] === undefined) continue;
-      let fixed = intsToFloats(lines[n]);
+      let fixed = narrowAssignment(lines[n], types);
+      if (fixed === lines[n]) fixed = moduloFloat(lines[n]);
+      if (fixed === lines[n]) fixed = boolToFloat(lines[n]);
+      if (fixed === lines[n]) fixed = intsToFloats(lines[n]);
       // HLSL quietly drops the extra components of a vec3 or vec4 varying passed as a vec2.
       if (fixed === lines[n]) fixed = lines[n].replace(/\b(\w+)\b(?![\w.(])/g, (id) => (wide.has(id) ? `${id}.xy` : id));
       // An int variable where a float belongs.
@@ -301,22 +351,23 @@ function matchVaryings(vert, frag) {
   return `${out.slice(0, end)}${copies.join("\n")}\n${out.slice(end)}`;
 }
 
-const fetchers = new Map();
-
 // A shader's two stages with their metadata, ahead of knowing the combos.
 WE.loadShaderSource = async function (assets, name) {
-  if (fetchers.has(name)) return fetchers.get(name);
-  const p = (async () => {
-    const includeRead = (f) => assets.text(`shaders/${f}`);
-    const [vs, fs] = await Promise.all([assets.text(`shaders/${name}.vert`), assets.text(`shaders/${name}.frag`)]);
-    if (vs == null || fs == null) throw new Error(`shader ${name} not found`);
-    const meta = { combos: {}, uniforms: {} };
-    const vert = await expandIncludes(vs, includeRead, new Set(), meta);
-    const frag = await expandIncludes(fs, includeRead, new Set(), meta);
-    return { name, vert, frag, meta };
-  })();
-  fetchers.set(name, p);
+  const known = assets.shaders || (assets.shaders = new Map());
+  if (known.has(name)) return known.get(name);
+  const p = WE.loadShaderSourceFresh(assets, name);
+  known.set(name, p);
   return p;
+};
+
+WE.loadShaderSourceFresh = async function (assets, name) {
+  const includeRead = (f) => assets.text(`shaders/${f}`);
+  const [vs, fs] = await Promise.all([assets.text(`shaders/${name}.vert`), assets.text(`shaders/${name}.frag`)]);
+  if (vs == null || fs == null) throw new Error(`shader ${name} not found`);
+  const meta = { combos: {}, uniforms: {} };
+  const vert = await expandIncludes(vs, includeRead, new Set(), meta);
+  const frag = await expandIncludes(fs, includeRead, new Set(), meta);
+  return { name, vert, frag, meta };
 };
 
 // Which combos a texture slot switches on, and the combos' defaults. `set` wins over both.
