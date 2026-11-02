@@ -207,7 +207,7 @@ setInterval(async () => {
   const pos = await invoke("cursor_position").catch(() => null);
   if (!pos) return;
   const [x, y, w, h] = cur.rect;
-  scene.setPointer(Math.min(1, Math.max(0, (pos[0] - x) / w)), Math.min(1, Math.max(0, (pos[1] - y) / h)));
+  scene.setPointer(Math.min(1, Math.max(0, (pos[0] - x) / w)), Math.min(1, Math.max(0, (pos[1] - y) / h)), pos[2]);
 }, 50);
 
 // Scenes that react to music get what's playing on the computer. Asking is what keeps capture
@@ -218,6 +218,12 @@ setInterval(async () => {
   const levels = await invoke("audio_spectrum").catch(() => null);
   if (levels) scene.setSpectrum(levels);
 }, 33);
+
+setInterval(async () => {
+  const scene = el?.scene;
+  if (!scene?.running || scene.paused || !scene.wantsMedia) return;
+  scene.setMedia(await invoke("now_playing").catch(() => null));
+}, 2000);
 
 me.listen("player:update", (e) => show(e.payload));
 invoke("player_init").then((p) => { if (!p) report("no wallpaper assigned to this window"); show(p); }, report);

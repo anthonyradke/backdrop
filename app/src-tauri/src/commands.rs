@@ -365,17 +365,23 @@ pub fn player_init(window: WebviewWindow, core: State<'_, Core>) -> Option<Playe
     core.players.lock().unwrap().get(window.label()).cloned()
 }
 
-/// Where the cursor is in physical pixels. Wallpapers sit behind the icons and get no mouse events,
-/// so scenes that follow the cursor ask for it.
+/// Where the cursor is in physical pixels, and whether it's pressing on the bare desktop. Wallpapers
+/// sit behind the icons and get no mouse events, so scenes that react to the cursor ask for them.
 #[tauri::command]
-pub fn cursor_position(app: AppHandle) -> Option<(f64, f64)> {
-    app.cursor_position().ok().map(|p| (p.x, p.y))
+pub fn cursor_position(app: AppHandle) -> Option<(f64, f64, bool)> {
+    app.cursor_position().ok().map(|p| (p.x, p.y, crate::platform::desktop_pressed(p.x, p.y)))
 }
 
 /// Levels of what's playing, for scenes that react to music. Left then right.
 #[tauri::command]
 pub fn audio_spectrum() -> Vec<f32> {
     crate::audio::spectrum()
+}
+
+/// The current track, for scenes that show it. The session API blocks, so it stays off the main thread.
+#[tauri::command]
+pub async fn now_playing() -> Result<Option<crate::nowplaying::NowPlaying>, String> {
+    tauri::async_runtime::spawn_blocking(crate::nowplaying::read).await.map_err(|e| e.to_string())
 }
 
 /// Players report problems (a video that won't decode, autoplay refused) into backdrop.log.

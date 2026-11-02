@@ -25,3 +25,22 @@ jobs:
         with:
           name: scene-check
           path: ${{ runner.temp }}/out
+
+  # The real app: a real scene through its import path, in WebView2, attached behind the desktop.
+  app:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build -p backdrop --release
+      - name: Run
+        shell: pwsh
+        run: scripts/scene-check/app.ps1 -Exe target/release/backdrop.exe -Out ${{ runner.temp }}/app
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: app-check
+          path: ${{ runner.temp }}/app

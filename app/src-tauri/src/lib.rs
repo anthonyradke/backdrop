@@ -6,6 +6,7 @@ mod engine;
 mod library;
 mod loopback;
 mod media;
+mod nowplaying;
 mod platform;
 mod rotation;
 mod scene;
@@ -413,6 +414,7 @@ pub fn run() {
             commands::set_wallpaper,
             commands::cursor_position,
             commands::audio_spectrum,
+            commands::now_playing,
             commands::span_wallpaper,
             commands::clear_wallpaper,
             commands::update_settings,

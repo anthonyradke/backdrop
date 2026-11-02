@@ -421,7 +421,7 @@ class ImageLayer extends Layer {
       const visible = s.bool(this, null, e.visible, true);
       if (!visible[0] && typeof e.visible !== "object") continue;
       try {
-        this.effects.push({ visible, passes: await s.makeEffect(this, e) });
+        this.effects.push({ visible, name: e.name || "", passes: await s.makeEffect(this, e) });
       } catch (err) {
         // A broken effect just goes missing; the layer still draws.
         s.warnOnce(`effect ${e.file}: ${err.message}`);
@@ -554,7 +554,7 @@ WE.Scene = class {
     this.pointer = [0.5, 0.5]; this.pointerLast = [0.5, 0.5]; this.pointerTarget = [0.5, 0.5];
     this.parallax = [0, 0];
     for (const n of [16, 32, 64]) for (const c of ["L", "R"]) this[`audio${n}${c}`] = new Float32Array(n);
-    this.drivers = [];
+    this.timelines = [];
     this.paused = false;
     this.running = false;
     this.fps = 30;
@@ -628,6 +628,8 @@ WE.Scene = class {
     this.white = solidTexture(gl, [255, 255, 255, 255]);
     this.black = solidTexture(gl, [0, 0, 0, 0]);
     this.normal = solidTexture(gl, [128, 128, 255, 255]);
+    this.cover = solidTexture(gl, [0, 0, 0, 255]);
+    this.coverBefore = solidTexture(gl, [0, 0, 0, 255]);
 
     const objs = data.objects || [];
     const made = await Promise.all(objs.map((o) => this.makeLayer(o)));
@@ -636,6 +638,7 @@ WE.Scene = class {
     this.buildOrder(objs);
     await this.setupBloom();
     await WE.startScripts?.(this);
+    this.wantsMedia = [...this.textures.keys()].some((n) => n.startsWith("$media")) || (this.scripts || []).some((s) => /\bmedia\w*Changed\b/.test(s.source));
     this.wantsAudio = [...this.programs.values()].some((p) => Object.keys(p.uniforms).some((u) => u.startsWith("g_AudioSpectrum")))
       || (this.scripts || []).some((s) => s.source.includes("registerAudioBuffers"));
     if (!this.layers.some((l) => l.base || l.draws)) throw new Error("nothing in this scene could be drawn");
@@ -703,8 +706,13 @@ WE.Scene = class {
     return out;
   }
   drive(owner, key, v, out) {
-    if (v.animation && !v.animation.options?.startpaused) this.drivers.push({ kind: "anim", anim: v.animation, out });
-    if (v.script && WE.addScript) WE.addScript(this, owner, key, v, out);
+    let timeline = null;
+    if (v.animation) {
+      const o = v.animation.options || {};
+      timeline = { id: this.timelines.length, anim: v.animation, out, owner, key, name: o.name || "", fps: o.fps || 30, length: o.length || 1, clock: 0, rate: 1, playing: !o.startpaused };
+      this.timelines.push(timeline);
+    }
+    if (v.script && WE.addScript) WE.addScript(this, owner, key, v, out, timeline);
   }
 
   // ---------- resources ----------
@@ -713,7 +721,9 @@ WE.Scene = class {
     if (this.textures.has(name)) return this.textures.get(name);
     const p = (async () => {
       if (name.startsWith("_rt_") || name.startsWith("_alias_")) return { rt: name };
-      // $mediaThumbnail and friends come from the music player integration, which isn't here.
+      // Album covers, filled in as tracks change.
+      if (name === "$mediaThumbnail") return this.cover;
+      if (name === "$mediaPreviousThumbnail") return this.coverBefore;
       if (name.startsWith("$")) return this.black;
       const path = name.endsWith(".tex") ? name : `materials/${name}.tex`;
       const bytes = await this.assets.bytes(path);
@@ -939,7 +949,7 @@ WE.Scene = class {
     set("g_Color", l.color);
     set("g_CompositeColor", l.color);
     set("g_Color4", [l.color[0], l.color[1], l.color[2], l.alpha[0]]);
-    this.spriteUniforms(u, t0);
+    this.spriteUniforms(u, t0, l);
     for (const c of p.constants) set(c.name, c.value);
     if (o.set) o.set(set);
     if (o.geometry) o.geometry.draw(this, p, o);
@@ -950,7 +960,7 @@ WE.Scene = class {
   }
 
   // Animated textures are sheets of frames; shaders get where the current frame sits.
-  spriteUniforms(u, t) {
+  spriteUniforms(u, t, layer) {
     const gl = this.gl;
     if (u.g_Texture0Rotation) gl.uniform4f(u.g_Texture0Rotation.loc, 1, 0, 0, 1);
     if (u.g_Texture0Translation) gl.uniform2f(u.g_Texture0Translation.loc, 0, 0);
@@ -958,7 +968,9 @@ WE.Scene = class {
     let total = 0;
     for (const f of t.frames) total += f.time || 0.0001;
     let at = this.time % total, frame = t.frames[0];
-    for (const f of t.frames) { at -= f.time || 0.0001; if (at <= 0) { frame = f; break; } }
+    // Scripts can hold a sheet on one frame, a clock's AM/PM for instance.
+    if (layer?.heldFrame != null) frame = t.frames[Math.min(t.frames.length - 1, Math.max(0, layer.heldFrame))];
+    else for (const f of t.frames) { at -= f.time || 0.0001; if (at <= 0) { frame = f; break; } }
     const tw = t.texWidth, th = t.texHeight;
     if (t.images?.length > 1 && t.images[frame.image]) { gl.bindTexture(gl.TEXTURE_2D, t.images[frame.image]); }
     if (u.g_Texture0Rotation) gl.uniform4f(u.g_Texture0Rotation.loc, frame.w / tw, frame.wy / th, frame.hx / tw, frame.h / th);
@@ -1043,10 +1055,13 @@ ${fs}`]]) {
     this.pointerLast = this.pointer.slice();
     this.pointer = this.pointerTarget.slice();
     this.updateParallax(this.dt);
-    for (const d of this.drivers) {
-      if (d.kind !== "anim") continue;
-      const v = WE.sampleAnimation(d.anim, time);
-      for (let i = 0; i < v.length; i++) d.out[i] = v[i];
+    for (const t of this.timelines) {
+      if (!t.playing && !t.dirty) continue;
+      if (t.playing) t.clock += this.dt * t.rate;
+      t.dirty = false;
+      const v = WE.sampleAnimation(t.anim, t.clock);
+      for (let i = 0; i < v.length; i++) t.out[i] = v[i];
+      if (t.anim.options?.mode === "single" && t.clock >= t.length / t.fps) t.playing = false;
     }
     WE.tickScripts?.(this);
     for (const v of this.videos) {
@@ -1093,8 +1108,9 @@ ${fs}`]]) {
 
   // The first reading isn't movement: cursor effects draw a stroke from the last position to this
   // one, and that would cross the screen.
-  setPointer(x, y) {
+  setPointer(x, y, down = false) {
     this.pointerTarget = [x, y];
+    this.pointerDown = down;
     if (!this.pointerSeen) {
       this.pointerSeen = true;
       this.pointer = [x, y];
@@ -1122,6 +1138,35 @@ ${fs}`]]) {
     fold(this.audio64L, 0, 64); fold(this.audio64R, half, 64);
     fold(this.audio32L, 0, 32); fold(this.audio32R, half, 32);
     fold(this.audio16L, 0, 16); fold(this.audio16R, half, 16);
+  }
+
+  // What's playing, or null. Scripts hear about changes and covers go into their textures.
+  async setMedia(now) {
+    const was = this.media, on = !!now;
+    const send = (kind, event) => this.worker?.postMessage({ type: "media", kind, event });
+    this.media = now;
+    if (on !== !!was) send("mediaStatusChanged", { enabled: on });
+    if (!now) { if (was) send("mediaPlaybackChanged", { state: 0 }); return; }
+    if (now.title !== was?.title || now.artist !== was?.artist) send("mediaPropertiesChanged", { title: now.title, artist: now.artist, albumTitle: now.album, albumArtist: now.artist, subTitle: "", genres: "" });
+    if (now.playing !== was?.playing) send("mediaPlaybackChanged", { state: now.playing ? 1 : 2 });
+    if (!now.cover) return;
+    try {
+      const bmp = await createImageBitmap(await (await fetch(now.cover)).blob());
+      const gl = this.gl;
+      [this.cover.tex, this.coverBefore.tex] = [this.coverBefore.tex, this.cover.tex];
+      gl.bindTexture(gl.TEXTURE_2D, this.cover.tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      this.cover.width = this.cover.texWidth = bmp.width;
+      this.cover.height = this.cover.texHeight = bmp.height;
+      const c = new OffscreenCanvas(1, 1).getContext("2d");
+      c.drawImage(bmp, 0, 0, 1, 1);
+      const [r, g, b] = c.getImageData(0, 0, 1, 1).data;
+      const main = [r / 255, g / 255, b / 255], light = (r * 0.3 + g * 0.59 + b * 0.11) / 255 > 0.5;
+      bmp.close();
+      send("mediaThumbnailChanged", { hasThumbnail: true, primaryColor: main, secondaryColor: main, tertiaryColor: main, textColor: light ? [0, 0, 0] : [1, 1, 1], highContrastColor: light ? [0, 0, 0] : [1, 1, 1] });
+    } catch (e) { this.warnOnce(`album cover: ${e.message}`); }
   }
 
   setAudio(muted, volume) {

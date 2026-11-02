@@ -7,6 +7,7 @@
 //! - `set_span_image`: set a still image as the OS wallpaper, stretched across all the displays
 //! - `covered`: which displays' players can't currently be seen (fullscreen or maximized apps)
 //! - `focused`: displays where another app's window is in front
+//! - `desktop_pressed`: whether the left button is down with the desktop itself under the cursor
 //! - `on_battery`, `low_power`, `locked`, `cleanup`
 
 #[cfg(windows)]

@@ -49,6 +49,10 @@ pub fn focused(_app: &AppHandle, _displays: &[Display]) -> HashSet<String> {
     HashSet::new()
 }
 
+pub fn desktop_pressed(_x: f64, _y: f64) -> bool {
+    false
+}
+
 pub fn cleanup(_app: &AppHandle) {}
 
 pub fn after_close(_app: &AppHandle) {}

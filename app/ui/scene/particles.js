@@ -74,6 +74,24 @@ const initializers = {
     const dist = num(d.distance, 0);
     return (p) => { const r = randomDirection(); p.pos[0] += r[0] * dist; p.pos[1] += r[1] * dist; };
   },
+  // Scales a starting value by how far from a control point the particle begins.
+  remapinitialvalue(d, sys) {
+    const cp = num(d.inputcontrolpoint0, 0), lo = num(d.inputrangemin, 0), hi = num(d.inputrangemax, 1);
+    const output = d.output || "size", operation = d.operation || "multiply";
+    const a = d.outputrangemin === undefined ? (output === "color" ? [0, 0, 0] : [0, 0, 0]) : vec(d.outputrangemin), b = d.outputrangemax === undefined ? [1, 1, 1] : vec(d.outputrangemax);
+    return (p) => {
+      const c = sys.point(cp), dist = Math.hypot(p.pos[0] - c[0], p.pos[1] - c[1], p.pos[2] - c[2]);
+      const t = d.input === "distancetocontrolpoint" ? window01(dist, lo, hi) : Math.random();
+      const v = [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+      const apply = (old, n) => (operation === "remap" ? n : old * n);
+      if (output === "color") p.color0 = p.color0.map((o, i) => apply(o, v[i]));
+      else if (output === "opacity" || output === "alpha") p.alpha0 = apply(p.alpha0, v[0]);
+      else if (output === "lifetime") p.lifetime = apply(p.lifetime, v[0]);
+      else if (output === "velocity") p.vel = p.vel.map((o, i) => apply(o, v[i]));
+      else p.size0 = apply(p.size0, v[0]);
+      p.size = p.size0; p.alpha = p.alpha0; p.color = p.color0.slice();
+    };
+  },
   mapsequencearoundcontrolpoint(d, sys) {
     const count = Math.max(1, num(d.count, 10)), s0 = vec(d.speedmin), s1 = vec(d.speedmax, s0);
     let n = 0;
@@ -88,6 +106,7 @@ const initializers = {
     return (p) => {
       const a = sys.point(num(d.controlpointstart, 0)), b = sys.point(num(d.controlpointend, 1)), t = (n++ % count) / (count - 1);
       p.pos = [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+      p.along = t;
     };
   },
 };
@@ -179,6 +198,64 @@ const operators = {
       p.vel[0] += dx * k; p.vel[1] += dy * k; p.vel[2] += dz * k;
     };
   },
+  remapvalue(d, sys) {
+    const scale = num(d.transforminputscale, 1), fn = d.transformfunction || "none", operation = d.operation || "multiply", fade = fader(d);
+    const lo = vec(d.outputrangemin), hi = d.outputrangemax === undefined ? [1, 1, 1] : vec(d.outputrangemax);
+    const input = (p) => (d.input === "particlesystemtime" ? sys.time : d.input === "particlelifetime" || !d.input ? p.t : p.age);
+    const shape = (p) => {
+      const x = input(p) * scale;
+      if (fn === "sine") return (Math.sin(x) + 1) / 2;
+      if (fn === "simplexnoise") return clamp01((flow(x + p.frame * 40, x * 0.7, p.frame * 40, 0)[0] + 3) / 6);
+      return clamp01(x);
+    };
+    const mix = (old, n, k) => lerp(old, operation === "remap" ? n : old * n, k);
+    return (p) => {
+      const t = shape(p), k = fade(p.t), v = [lerp(lo[0], hi[0], t), lerp(lo[1], hi[1], t), lerp(lo[2], hi[2], t)];
+      if (d.output === "opacity" || d.output === "alpha") p.alpha = mix(p.alpha, v[0], k);
+      else if (d.output === "size") p.size = mix(p.size, v[0], k);
+      else if (d.output === "color") p.color = p.color.map((o, i) => mix(o, v[i], k));
+      else if (d.output === "velocity") p.vel = p.vel.map((o, i) => mix(o, v[i], k));
+    };
+  },
+  // Holds particles on the shell they started on around a control point.
+  maintaindistancetocontrolpoint(d, sys) {
+    const cp = num(d.controlpoint, 0), k = num(d.variablestrength, 5);
+    return (p, dt) => {
+      const c = sys.point(cp), dx = p.pos[0] - c[0], dy = p.pos[1] - c[1], dz = p.pos[2] - c[2], r = Math.hypot(dx, dy, dz) || 1;
+      if (p.shell === undefined) p.shell = r;
+      const pull = ((p.shell - r) / r) * Math.min(1, k * dt);
+      p.pos[0] += dx * pull; p.pos[1] += dy * pull; p.pos[2] += dz * pull;
+    };
+  },
+  // Keeps a chain strung evenly between its two end points.
+  maintaindistancebetweencontrolpoints(d, sys) {
+    const from = num(d.controlpointstart, 0), to = num(d.controlpointend, 1), k = num(d.variablestrength, 5);
+    return (p, dt) => {
+      if (p.along === undefined) return;
+      const a = sys.point(from), b = sys.point(to), s = Math.min(1, k * dt);
+      for (let i = 0; i < 3; i++) p.pos[i] += (lerp(a[i], b[i], p.along) - p.pos[i]) * s;
+    };
+  },
+  // Flocking: steer towards neighbours, match them, and don't crowd.
+  boids(d, sys) {
+    const range = num(d.neighborthreshold, 150), co = num(d.cohesionfactor, 5), al = num(d.alignmentfactor, 5), se = num(d.separationfactor, 5);
+    return (p, dt) => {
+      const list = sys.current;
+      let n = 0, cx = 0, cy = 0, vx = 0, vy = 0, sx = 0, sy = 0;
+      // Plenty for the look of a flock, and it keeps this from going quadratic on big systems.
+      const step = Math.max(1, Math.floor(list.length / 64));
+      for (let i = 0; i < list.length; i += step) {
+        const o = list[i];
+        if (o === p) continue;
+        const dx = o.pos[0] - p.pos[0], dy = o.pos[1] - p.pos[1], r = Math.hypot(dx, dy);
+        if (r > range || !r) continue;
+        n++; cx += dx; cy += dy; vx += o.vel[0]; vy += o.vel[1]; sx -= dx / r; sy -= dy / r;
+      }
+      if (!n) return;
+      p.vel[0] += ((cx / n) * co * 0.02 + (vx / n - p.vel[0]) * al * 0.1 + sx * se) * dt;
+      p.vel[1] += ((cy / n) * co * 0.02 + (vy / n - p.vel[1]) * al * 0.1 + sy * se) * dt;
+    };
+  },
   capvelocity(d) {
     const max = num(d.maxspeed, 100);
     return (p) => { const s = Math.hypot(...p.vel); if (s > max) { const k = max / s; p.vel[0] *= k; p.vel[1] *= k; p.vel[2] *= k; } };
@@ -204,6 +281,8 @@ class Particle {
     this.oscs = null;
     this.history = null;
     this.since = 0;
+    this.shell = undefined;
+    this.along = undefined;
     return this;
   }
   osc(key, f0, f1, ph) {
@@ -364,6 +443,7 @@ class System {
       if (!inst.dead) this.emit(inst, dt);
       if (this.type === "eventdeath") inst.dead = true;
       const live = inst.live;
+      this.current = live;
       let n = 0;
       for (let i = 0; i < live.length; i++) {
         const p = live[i];

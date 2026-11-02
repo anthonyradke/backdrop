@@ -28,6 +28,7 @@ use windows::Win32::System::RemoteDesktop::{
 use windows::Win32::UI::Shell::{
     DesktopWallpaper, IDesktopWallpaper, DWPOS_CENTER, DWPOS_FILL, DWPOS_FIT, DWPOS_SPAN, DWPOS_STRETCH,
 };
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 pub const NATIVE_IMAGES: bool = true;
@@ -369,6 +370,18 @@ pub fn focused(_app: &AppHandle, displays: &[Display]) -> HashSet<String> {
             return HashSet::new();
         }
         displays.iter().filter(|d| rect_eq(&mi.rcMonitor, d)).map(|d| d.key.clone()).collect()
+    }
+}
+
+/// Clicks on an app's window are none of the wallpaper's business, so this only counts when the
+/// window under the cursor is part of the desktop.
+pub fn desktop_pressed(x: f64, y: f64) -> bool {
+    unsafe {
+        if GetAsyncKeyState(VK_LBUTTON.0 as i32) >= 0 {
+            return false;
+        }
+        let h = WindowFromPoint(POINT { x: x as i32, y: y as i32 });
+        matches!(class_name(h).as_str(), "Progman" | "WorkerW" | "SHELLDLL_DefView" | "SysListView32")
     }
 }
 

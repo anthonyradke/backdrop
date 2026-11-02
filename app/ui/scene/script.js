@@ -16,6 +16,7 @@ function scriptRuntime() {
   const writes = [];
   const shared = {};
   const audioBuffers = [];
+  const last = { x: -1, y: -1, down: false };
   const store = new Map();
   const warn = (m) => postMessage({ type: "warn", message: String(m).slice(0, 300) });
   const console = { log() {}, info() {}, warn() {}, error() {}, debug() {} };
@@ -41,10 +42,39 @@ function scriptRuntime() {
     openUserShortcut() {},
   };
   const input = { cursorWorldPosition: null, cursorScreenPosition: null, cursorLeftDown: false };
-  const timeline = () => ({
-    play() {}, stop() {}, pause() {}, isPlaying: () => false, getFrame: () => 0, setFrame() {},
-    getFrameCount: () => 1, duration: 1, frameCount: 1, fps: 30, name: "", rate: 1,
-  });
+  const ops = [];
+  const timelines = new Map();
+  // A keyframed property. It runs in the renderer; this mirrors enough state to answer questions.
+  function timeline(info) {
+    if (!info) return { play() {}, stop() {}, pause() {}, isPlaying: () => false, getFrame: () => 0, setFrame() {}, getFrameCount: () => 1, duration: 1, frameCount: 1, fps: 30, name: "", rate: 1 };
+    if (timelines.has(info.id)) return timelines.get(info.id);
+    const t = {
+      playing: !!info.playing, at: 0, name: info.name, fps: info.fps, frameCount: info.length, duration: info.length / info.fps, rate: 1,
+      play() { t.playing = true; ops.push(["play", info.id]); },
+      pause() { t.playing = false; ops.push(["pause", info.id]); },
+      stop() { t.playing = false; t.at = 0; ops.push(["stop", info.id]); },
+      setFrame(f) { t.at = f / info.fps; ops.push(["seek", info.id, t.at]); },
+      getFrame: () => t.at * info.fps,
+      getFrameCount: () => info.length,
+      isPlaying: () => t.playing,
+    };
+    timelines.set(info.id, t);
+    return t;
+  }
+  // An animated texture's frames.
+  function sheet(l) {
+    if (l.sheet) return l.sheet;
+    const frames = l.frames || 1;
+    let at = 0, held = false;
+    const hold = (f) => { at = f; held = true; ops.push(["frame", l.id, f]); };
+    l.sheet = {
+      frameCount: frames, rate: 1,
+      setFrame: hold, getFrame: () => at, getFrameCount: () => frames,
+      play() { held = false; ops.push(["frame", l.id, null]); }, stop() { hold(0); }, pause() { hold(at); },
+      isPlaying: () => !held,
+    };
+    return l.sheet;
+  }
   const vec3 = (v) => new self.Vec3(v[0] || 0, v[1] || 0, v[2] || 0);
 
   function layerProxy(id) {
@@ -76,15 +106,21 @@ function scriptRuntime() {
       get size() { return new self.Vec2(l.size[0] || 0, l.size[1] || 0); },
       get parallaxDepth() { return new self.Vec2(0, 0); },
       getParent() { return layerProxy(l.parent); },
-      getTextureAnimation: timeline, getAnimation: timeline, getAnimationLayer: timeline,
-      getEffect: () => ({ visible: true, getMaterial: () => ({}) }),
+      getTextureAnimation: () => sheet(l),
+      getAnimation: (name) => timeline((l.timelines || []).find((t) => !name || t.name === name)),
+      getAnimationLayer: () => timeline(null),
+      getEffect(name) {
+        const known = (l.effects || []).find((e) => e === name) !== undefined;
+        const fx = { get visible() { return !l.hiddenEffects?.has(name); }, set visible(v) { if (!known) return; (l.hiddenEffects ||= new Set())[v ? "delete" : "add"](name); ops.push(["effect", id, name, !!v]); }, getMaterial: () => ({}) };
+        return fx;
+      },
       getBoneCount: () => 0, getBoneTransform: () => null, setBoneTransform() {},
       play() {}, stop() {}, pause() {}, isPlaying: () => false,
     };
     l.proxy = p;
     return p;
   }
-  const nullLayer = new Proxy({}, { get: (_, k) => (k === "origin" || k === "scale" || k === "angles" || k === "color" ? vec3([0, 0, 0]) : k === "getTextureAnimation" || k === "getAnimation" ? timeline : undefined), set: () => true });
+  const nullLayer = new Proxy({}, { get: (_, k) => (k === "origin" || k === "scale" || k === "angles" || k === "color" ? vec3([0, 0, 0]) : k === "getTextureAnimation" || k === "getAnimation" ? () => timeline(null) : undefined), set: () => true });
 
   const scene = {
     getLayer: (name) => (named.has(name) ? layerProxy(named.get(name)) : null),
@@ -163,10 +199,13 @@ function scriptRuntime() {
     for (const d of m.scripts) {
       const s = { ...d, errors: 0, off: false, value: fromWire(d.value, d.kind) };
       const layer = layerProxy(d.owner);
+      // Inside a property's script, thisObject.getAnimation() means that property's keyframes.
+      const object = Object.create(layer, { getAnimation: { value: (name) => (name ? layer.getAnimation?.(name) : timeline(d.timeline)) } });
       try {
-        const exports = compile(d.source, keys)(modules, engine, input, shared, store_, console, scene, layer, layer, () => propertiesBuilder(d.properties), self.MediaPlaybackEvent);
+        const exports = compile(d.source, keys)(modules, engine, input, shared, store_, console, scene, layer, object, () => propertiesBuilder(d.properties), self.MediaPlaybackEvent);
         s.update = exports.update;
         s.exports = exports;
+        exports.cursor = ["cursorEnter", "cursorLeave", "cursorMove", "cursorDown", "cursorUp", "cursorClick"].some((n) => exports[n]);
         scripts.push(s);
         if (exports.init) guard(s, () => { const r = exports.init(s.value); if (r !== undefined) s.value = r; });
         // Scripts set themselves up from the user's choices here, not only when one changes.
@@ -183,6 +222,27 @@ function scriptRuntime() {
     input.cursorWorldPosition.y = (1 - m.pointer[1]) * engine.canvasSize.y;
     input.cursorScreenPosition.x = m.pointer[0] * engine.canvasSize.x;
     input.cursorScreenPosition.y = m.pointer[1] * engine.canvasSize.y;
+    const moved = m.pointer[0] !== last.x || m.pointer[1] !== last.y;
+    const pressed = m.down && !last.down, released = !m.down && last.down;
+    input.cursorLeftDown = m.down;
+    last.x = m.pointer[0]; last.y = m.pointer[1]; last.down = m.down;
+    const hits = new Set(m.hits);
+    const event = () => ({ worldPosition: input.cursorWorldPosition, localPosition: input.cursorWorldPosition, position: input.cursorWorldPosition });
+    for (const s of scripts) {
+      if (s.off || !s.exports.cursor) continue;
+      const e = s.exports, hit = s.owner == null || hits.has(s.owner);
+      const fire = (name) => { if (e[name]) guard(s, () => e[name](event())); };
+      if (hit && !s.over) fire("cursorEnter");
+      if (!hit && s.over) fire("cursorLeave");
+      s.over = hit;
+      if (moved && (hit || s.held)) fire("cursorMove");
+      if (pressed && hit) { s.held = true; fire("cursorDown"); }
+      if (released && s.held) {
+        s.held = false;
+        fire("cursorUp");
+        if (hit) fire("cursorClick");
+      }
+    }
     for (const b of audioBuffers) {
       const n = b.left.length, source = n >= 64 ? [m.audio[0], m.audio[1]] : n >= 32 ? [m.audio[2], m.audio[3]] : [m.audio[4], m.audio[5]];
       for (let i = 0; i < n; i++) {
@@ -203,32 +263,60 @@ function scriptRuntime() {
         if (w !== undefined && changed) { results.push([s.id, w]); s.sent = typeof w === "object" ? JSON.stringify(w) : w; }
       });
     }
-    postMessage({ type: "frame", results, writes: writes.splice(0) });
+    for (const [id, l] of timelines) if (l.playing) l.at += m.dt * l.rate;
+    postMessage({ type: "frame", results, writes: writes.splice(0), ops: ops.splice(0) });
+  }
+
+  function media(m) {
+    const event = { ...m.event };
+    for (const k of ["primaryColor", "secondaryColor", "tertiaryColor", "textColor", "highContrastColor"]) if (event[k]) event[k] = vec3(event[k]);
+    for (const s of scripts) if (!s.off && s.exports[m.kind]) guard(s, () => s.exports[m.kind](event));
   }
 
   onmessage = (e) => {
     if (e.data.type === "setup") setup(e.data);
     else if (e.data.type === "tick") tick(e.data);
+    else if (e.data.type === "media") media(e.data);
   };
 }
 
-WE.addScript = function (scene, owner, key, v, out) {
+const CURSOR = /\bexport\s+function\s+cursor(Enter|Leave|Move|Down|Up|Click)\b/;
+
+WE.addScript = function (scene, owner, key, v, out, timeline) {
   const list = scene.scripts || (scene.scripts = []);
   const saved = {};
   for (const [k, p] of Object.entries(v.scriptproperties || {})) saved[k] = scene.value(p);
-  list.push({ id: list.length, owner, key, source: v.script, properties: saved, out });
+  list.push({ id: list.length, owner, key, source: v.script, properties: saved, out, timeline });
+  if (owner && CURSOR.test(v.script)) (scene.cursorLayers ||= new Set()).add(owner);
 };
 
+const timelineInfo = (t) => t && { id: t.id, name: t.name, fps: t.fps, length: t.length, playing: t.playing };
+
+// Whether the cursor is over a layer, in the flipped, centered space layers are laid out in.
+function underCursor(scene, l) {
+  if (!l.rect || !l.shown()) return false;
+  const w = l.world(), r = l.rect(w);
+  let x = scene.pointer[0] * scene.width - scene.width / 2, y = scene.pointer[1] * scene.height - scene.height / 2;
+  if (w.angle) {
+    const cx = (r.x0 + r.x1) / 2, cy = (r.y0 + r.y1) / 2, c = Math.cos(w.angle), s = Math.sin(w.angle), dx = x - cx, dy = y - cy;
+    x = cx + dx * c - dy * s; y = cy + dx * s + dy * c;
+  }
+  return x >= Math.min(r.x0, r.x1) && x <= Math.max(r.x0, r.x1) && y >= Math.min(r.y0, r.y1) && y <= Math.max(r.y0, r.y1);
+}
+
 // Everything scripts can see of a layer, as plain data for the Worker.
-function layerData(l) {
+function layerData(l, scene) {
   return {
     id: l.id, name: l.name, parent: l.data.parent ?? null, origin: l.origin.slice(), scale: l.scale.slice(), angles: l.angles.slice(), color: l.color.slice(),
     alpha: l.alpha[0], brightness: l.brightness[0], visible: !!l.visible[0], size: [l.w || l.size[0] || 0, l.h || l.size[1] || 0],
     text: l.textValue ? String(l.textValue[0]) : "", pointsize: l.pointsize ? l.pointsize[0] : 0,
+    frames: l.texture?.frames?.length || 1, effects: (l.effects || []).map((e) => e.name),
+    timelines: scene.timelines.filter((t) => t.owner === l).map(timelineInfo),
   };
 }
 
 async function startScripts(scene) {
+  const layerInfo = (l) => layerData(l, scene);
   const stock = scene.assets;
   const classes = await stock.text("scripts/jsclasses/baseclasses.js");
   if (!classes) { scene.warn("no script runtime in Wallpaper Engine's assets"); return; }
@@ -247,9 +335,9 @@ async function startScripts(scene) {
   for (const [k, p] of Object.entries(scene.userProps)) props[k] = p.value;
   worker.postMessage({
     type: "setup", classes, modules, width: scene.width, height: scene.height, userProperties: props,
-    layers: scene.layers.map(layerData),
+    layers: scene.layers.map(layerInfo),
     scripts: scripts.map((s) => ({
-      id: s.id, owner: s.owner?.id ?? null, kind: s.key, label: `"${s.owner?.name ?? "scene"}" ${s.key ?? "value"}`, source: s.source, properties: s.properties,
+      id: s.id, owner: s.owner?.id ?? null, kind: s.key, timeline: timelineInfo(s.timeline), label: `"${s.owner?.name ?? "scene"}" ${s.key ?? "value"}`, source: s.source, properties: s.properties,
       value: s.key === "text" ? String(s.out[0]) : s.out.length === 1 ? (typeof s.out[0] === "boolean" ? s.out[0] : s.out[0]) : s.out.slice(),
     })),
   });
@@ -270,6 +358,20 @@ async function startScripts(scene) {
       if (!Array.isArray(field)) continue;
       for (let i = 0; i < v.length; i++) if (typeof v[i] !== "number" || Number.isFinite(v[i])) field[i] = v[i];
     }
+    for (const [op, id, a, b] of m.ops) {
+      if (op === "frame") { const l = scene.byId.get(id); if (l) l.heldFrame = a; continue; }
+      if (op === "effect") {
+        const fx = scene.byId.get(id)?.effects?.find((e) => e.name === a);
+        if (fx) fx.visible[0] = b;
+        continue;
+      }
+      const t = scene.timelines[id];
+      if (!t) continue;
+      if (op === "play") t.playing = true;
+      else if (op === "pause") t.playing = false;
+      else if (op === "stop") { t.playing = false; t.clock = 0; t.dirty = true; }
+      else if (op === "seek") { t.clock = a; t.dirty = true; }
+    }
   };
 }
 
@@ -279,7 +381,8 @@ WE.tickScripts = function (scene) {
   if (!scene.worker || scene.scriptBusy) return;
   scene.scriptBusy = true;
   scene.worker.postMessage({
-    type: "tick", time: scene.time, dt: scene.dt, day: scene.daytime, pointer: scene.pointer,
+    type: "tick", time: scene.time, dt: scene.dt, day: scene.daytime, pointer: scene.pointer, down: !!scene.pointerDown,
+    hits: [...(scene.cursorLayers || [])].filter((l) => underCursor(scene, l)).map((l) => l.id),
     audio: [scene.audio64L, scene.audio64R, scene.audio32L, scene.audio32R, scene.audio16L, scene.audio16R],
   });
 };
