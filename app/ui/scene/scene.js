@@ -277,9 +277,9 @@ function sharedUniforms(scene) {
     g_EffectTextureProjectionMatrix: scene.identity,
     g_EffectTextureProjectionMatrixInverse: scene.identity,
     g_TextureReductionScale: 1,
-    g_AudioSpectrum16Left: scene.audio16, g_AudioSpectrum16Right: scene.audio16,
-    g_AudioSpectrum32Left: scene.audio32, g_AudioSpectrum32Right: scene.audio32,
-    g_AudioSpectrum64Left: scene.audio64, g_AudioSpectrum64Right: scene.audio64,
+    g_AudioSpectrum16Left: scene.audio16L, g_AudioSpectrum16Right: scene.audio16R,
+    g_AudioSpectrum32Left: scene.audio32L, g_AudioSpectrum32Right: scene.audio32R,
+    g_AudioSpectrum64Left: scene.audio64L, g_AudioSpectrum64Right: scene.audio64R,
   };
 }
 
@@ -553,7 +553,7 @@ WE.Scene = class {
     this.time = 0; this.dt = 0; this.daytime = 0;
     this.pointer = [0.5, 0.5]; this.pointerLast = [0.5, 0.5]; this.pointerTarget = [0.5, 0.5];
     this.parallax = [0, 0];
-    this.audio16 = new Float32Array(16); this.audio32 = new Float32Array(32); this.audio64 = new Float32Array(64);
+    for (const n of [16, 32, 64]) for (const c of ["L", "R"]) this[`audio${n}${c}`] = new Float32Array(n);
     this.drivers = [];
     this.paused = false;
     this.running = false;
@@ -636,6 +636,8 @@ WE.Scene = class {
     this.buildOrder(objs);
     await this.setupBloom();
     await WE.startScripts?.(this);
+    this.wantsAudio = [...this.programs.values()].some((p) => Object.keys(p.uniforms).some((u) => u.startsWith("g_AudioSpectrum")))
+      || (this.scripts || []).some((s) => s.source.includes("registerAudioBuffers"));
     if (!this.layers.some((l) => l.base || l.draws)) throw new Error("nothing in this scene could be drawn");
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     return this;
@@ -1104,6 +1106,22 @@ ${fs}`]]) {
   frameDataUrl() {
     this.renderAt(this.time);
     return this.canvas.toDataURL("image/jpeg", 0.9);
+  }
+
+  // Levels arrive as 64 bands left then 64 right; shaders also take 32 and 16.
+  setSpectrum(levels) {
+    const half = levels.length / 2;
+    const fold = (out, from, n) => {
+      const k = half / n;
+      for (let i = 0; i < n; i++) {
+        let sum = 0;
+        for (let j = 0; j < k; j++) sum += levels[from + i * k + j];
+        out[i] = sum / k;
+      }
+    };
+    fold(this.audio64L, 0, 64); fold(this.audio64R, half, 64);
+    fold(this.audio32L, 0, 32); fold(this.audio32R, half, 32);
+    fold(this.audio16L, 0, 16); fold(this.audio16R, half, 16);
   }
 
   setAudio(muted, volume) {

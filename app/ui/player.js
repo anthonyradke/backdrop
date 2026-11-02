@@ -210,6 +210,15 @@ setInterval(async () => {
   scene.setPointer(Math.min(1, Math.max(0, (pos[0] - x) / w)), Math.min(1, Math.max(0, (pos[1] - y) / h)));
 }, 50);
 
+// Scenes that react to music get what's playing on the computer. Asking is what keeps capture
+// running, so it stops by itself when no such scene is on screen.
+setInterval(async () => {
+  const scene = el?.scene;
+  if (!scene?.running || scene.paused || !scene.wantsAudio) return;
+  const levels = await invoke("audio_spectrum").catch(() => null);
+  if (levels) scene.setSpectrum(levels);
+}, 33);
+
 me.listen("player:update", (e) => show(e.payload));
 invoke("player_init").then((p) => { if (!p) report("no wallpaper assigned to this window"); show(p); }, report);
 document.addEventListener("contextmenu", (e) => e.preventDefault());

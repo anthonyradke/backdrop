@@ -372,6 +372,12 @@ pub fn cursor_position(app: AppHandle) -> Option<(f64, f64)> {
     app.cursor_position().ok().map(|p| (p.x, p.y))
 }
 
+/// Levels of what's playing, for scenes that react to music. Left then right.
+#[tauri::command]
+pub fn audio_spectrum() -> Vec<f32> {
+    crate::audio::spectrum()
+}
+
 /// Players report problems (a video that won't decode, autoplay refused) into backdrop.log.
 #[tauri::command]
 pub fn player_log(window: WebviewWindow, msg: String) {

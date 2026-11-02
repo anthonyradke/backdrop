@@ -1,3 +1,4 @@
+mod audio;
 mod commands;
 mod common;
 mod config;
@@ -411,6 +412,7 @@ pub fn run() {
             commands::delete_local,
             commands::set_wallpaper,
             commands::cursor_position,
+            commands::audio_spectrum,
             commands::span_wallpaper,
             commands::clear_wallpaper,
             commands::update_settings,

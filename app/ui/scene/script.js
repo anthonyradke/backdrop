@@ -15,6 +15,7 @@ function scriptRuntime() {
   const named = new Map();
   const writes = [];
   const shared = {};
+  const audioBuffers = [];
   const store = new Map();
   const warn = (m) => postMessage({ type: "warn", message: String(m).slice(0, 300) });
   const console = { log() {}, info() {}, warn() {}, error() {}, debug() {} };
@@ -29,7 +30,11 @@ function scriptRuntime() {
     isPortrait: () => false, isLandscape: () => true,
     isRunningInEditor: () => false,
     getScreenResolution() { return this.screenResolution; },
-    registerAudioBuffers: (n) => ({ left: new Float32Array(n || 16), right: new Float32Array(n || 16), average: new Float32Array(n || 16) }),
+    registerAudioBuffers(n) {
+      const b = { left: new Float32Array(n || 16), right: new Float32Array(n || 16), average: new Float32Array(n || 16) };
+      audioBuffers.push(b);
+      return b;
+    },
     registerAsset: (a) => a,
     setTimeout: (f, t) => setTimeout(f, t), clearTimeout: (t) => clearTimeout(t),
     setInterval: (f, t) => setInterval(f, t), clearInterval: (t) => clearInterval(t),
@@ -178,6 +183,13 @@ function scriptRuntime() {
     input.cursorWorldPosition.y = (1 - m.pointer[1]) * engine.canvasSize.y;
     input.cursorScreenPosition.x = m.pointer[0] * engine.canvasSize.x;
     input.cursorScreenPosition.y = m.pointer[1] * engine.canvasSize.y;
+    for (const b of audioBuffers) {
+      const n = b.left.length, source = n >= 64 ? [m.audio[0], m.audio[1]] : n >= 32 ? [m.audio[2], m.audio[3]] : [m.audio[4], m.audio[5]];
+      for (let i = 0; i < n; i++) {
+        b.left[i] = source[0][i] ?? 0; b.right[i] = source[1][i] ?? 0;
+        b.average[i] = (b.left[i] + b.right[i]) / 2;
+      }
+    }
     const results = [];
     for (const s of scripts) {
       if (s.off || !s.update) continue;
@@ -266,7 +278,10 @@ WE.startScripts = (scene) => (scene.scripts?.length ? startScripts(scene) : Prom
 WE.tickScripts = function (scene) {
   if (!scene.worker || scene.scriptBusy) return;
   scene.scriptBusy = true;
-  scene.worker.postMessage({ type: "tick", time: scene.time, dt: scene.dt, day: scene.daytime, pointer: scene.pointer });
+  scene.worker.postMessage({
+    type: "tick", time: scene.time, dt: scene.dt, day: scene.daytime, pointer: scene.pointer,
+    audio: [scene.audio64L, scene.audio64R, scene.audio32L, scene.audio32R, scene.audio16L, scene.audio16R],
+  });
 };
 
 WE.stopScripts = function (scene) {
