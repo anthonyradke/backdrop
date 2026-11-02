@@ -1089,6 +1089,17 @@ ${fs}`]]) {
     this.raf = requestAnimationFrame(tick);
   }
 
+  // The first reading isn't movement: cursor effects draw a stroke from the last position to this
+  // one, and that would cross the screen.
+  setPointer(x, y) {
+    this.pointerTarget = [x, y];
+    if (!this.pointerSeen) {
+      this.pointerSeen = true;
+      this.pointer = [x, y];
+      this.pointerLast = [x, y];
+    }
+  }
+
   // A JPEG of the current frame. The canvas only holds a frame right after drawing one.
   frameDataUrl() {
     this.renderAt(this.time);

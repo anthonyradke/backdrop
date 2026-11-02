@@ -207,7 +207,7 @@ setInterval(async () => {
   const pos = await invoke("cursor_position").catch(() => null);
   if (!pos) return;
   const [x, y, w, h] = cur.rect;
-  scene.pointerTarget = [Math.min(1, Math.max(0, (pos[0] - x) / w)), Math.min(1, Math.max(0, (pos[1] - y) / h))];
+  scene.setPointer(Math.min(1, Math.max(0, (pos[0] - x) / w)), Math.min(1, Math.max(0, (pos[1] - y) / h)));
 }, 50);
 
 me.listen("player:update", (e) => show(e.payload));
