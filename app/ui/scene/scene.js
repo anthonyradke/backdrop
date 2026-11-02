@@ -354,7 +354,20 @@ class ImageLayer extends Layer {
     this.fit();
     await this.buildEffects();
     if (this.blendMode > 0) await this.buildColorBlend();
-    if (this.model.puppet && WE.loadPuppet) this.puppet = await WE.loadPuppet(s, this.model.puppet).catch((e) => { s.warn(`puppet ${this.name}: ${e.message}`); return null; });
+    if (this.model.puppet) await this.buildPuppet(material.passes[0]);
+  }
+  // The flat sheet goes through the effects as usual, then this pass draws the result on the mesh.
+  async buildPuppet(pass) {
+    const s = this.scene;
+    try {
+      this.puppet = await WE.loadPuppet(s, this.model.puppet, this.data.animationlayers, this.uvMax);
+      const n = this.puppet.bones.length;
+      const combos = n ? { SKINNING: 1, BONECOUNT: n } : {};
+      this.skin = await s.makePass(this, { ...pass, textures: [] }, { combos }, null, null, null);
+    } catch (e) {
+      this.puppet = this.skin = null;
+      s.warn(`puppet on "${this.name}": ${e.message}`);
+    }
   }
   async material() { return this.model.material ? this.scene.assets.json(this.model.material) : null; }
   async buildBase(material) {
@@ -379,16 +392,20 @@ class ImageLayer extends Layer {
     if ((!w || !h) && m.width) { w = m.width; h = m.height; }
     if (!w || !h) { w = s.width; h = s.height; }
     if (m.fullscreen) { w = s.width; h = s.height; this.fullscreen = true; }
-    this.w = w; this.h = h;
-    const float = s.hdr;
-    this.a = new Target(s.gl, w, h, float);
-    this.b = new Target(s.gl, w, h, float);
-    s.targets.set(`_rt_imageLayerComposite_${this.id}_a`, this.a);
-    s.targets.set(`_rt_imageLayerComposite_${this.id}_b`, this.b);
-    this.ortho = M.ortho(0, w, 0, h);
+    this.resize(w, h);
     if (t && !t.frames) {
       this.uvMax = [t.width / t.texWidth || 1, t.height / t.texHeight || 1];
     } else this.uvMax = [1, 1];
+  }
+  resize(w, h) {
+    const s = this.scene;
+    this.a?.delete(); this.b?.delete();
+    this.w = w; this.h = h;
+    this.a = new Target(s.gl, w, h, s.hdr);
+    this.b = new Target(s.gl, w, h, s.hdr);
+    s.targets.set(`_rt_imageLayerComposite_${this.id}_a`, this.a);
+    s.targets.set(`_rt_imageLayerComposite_${this.id}_b`, this.b);
+    this.ortho = M.ortho(0, w, 0, h);
   }
   async buildEffects() {
     const s = this.scene;
@@ -446,6 +463,7 @@ class ImageLayer extends Layer {
     const screen = this.screenMatrix(w, r);
     const chain = [this.base];
     for (const e of this.effects) if (e.visible[0]) chain.push(...e.passes);
+    if (this.skin) chain.push(this.skin);
     if (this.colorBlend) chain.push(this.colorBlend);
     if (this.model.passthrough && chain.length === 1) return;
     const passthrough = !!this.model.passthrough;
@@ -460,7 +478,10 @@ class ImageLayer extends Layer {
       const toScene = last && !target;
       const dest = target || (toScene ? s.sceneTarget : drawing);
       let mvp;
-      if (toScene) {
+      if (p === this.skin && toScene) {
+        const cx = (r.x0 + r.x1) / 2, cy = (r.y0 + r.y1) / 2;
+        mvp = M.mul(M.mul(screen, M.translate(cx, cy)), [w.scale[0], 0, 0, 0, 0, -w.scale[1], 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+      } else if (toScene) {
         mvp = screen;
         if (first) quad(r.x0, r.y0, r.x1, r.y1, this.uvMax[0], this.uvMax[1]);
         else quad(r.x0, r.y0, r.x1, r.y1, 1, 1);
@@ -478,8 +499,8 @@ class ImageLayer extends Layer {
       }
       const blend = chain.length === 1 ? this.blending : toScene ? this.blending : "normal";
       gl.colorMask(true, true, true, !toScene);
-      const colored = this.puppet && first ? this.puppet : null;
-      s.drawPass(p, dest, input, inTarget ? effectInput : null, { mvp, blend, layer: this, geometry: colored, screen });
+      const geometry = p === this.skin ? this.puppet : null;
+      s.drawPass(p, dest, input, inTarget ? effectInput : null, { mvp, blend, layer: this, geometry });
       if (target) {
         if (!inTarget) { effectInput = input; inTarget = true; }
         input = dest;
@@ -497,6 +518,9 @@ class GroupLayer extends Layer {
   async init() {}
 }
 
+WE.LayerBase = Layer;
+WE.ImageLayerBase = ImageLayer;
+
 // ---------- the scene ----------
 
 WE.Scene = class {
@@ -505,6 +529,8 @@ WE.Scene = class {
     this.opts = opts;
     this.warnings = [];
     this.warn = (m) => { this.warnings.push(m); opts.log?.(m); };
+    const warned = new Set();
+    this.warnOnce = (m) => { if (!warned.has(m)) { warned.add(m); this.warn(m); } };
     this.assets = new Assets(opts.base, opts.stock);
     this.layers = [];
     this.byId = new Map();
@@ -1031,6 +1057,10 @@ ${fs}`]]) {
   frameDataUrl() {
     this.renderAt(this.time);
     return this.canvas.toDataURL("image/jpeg", 0.9);
+  }
+
+  setAudio(muted, volume) {
+    for (const s of this.sounds) s.setMaster(muted ? 0 : volume);
   }
 
   setPaused(p) {
