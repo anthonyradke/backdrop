@@ -26,35 +26,68 @@ class Binary {
   }
 }
 
+// The vertex format word says what each vertex holds: 1 position, 2 normal, 4 tangent, 8 texture
+// coordinates, and with 0x00800000 set, four bone indices and weights. Older files put the bones
+// right after the position; the tangent-space ones put them after the tangent.
+const HAS = { position: 1, normal: 2, tangent: 4, uv: 8, skin: 0x00800000 };
+function layout(format) {
+  if (!(format & HAS.position) || format & ~0x018000ff) return null;
+  let size = 12;
+  if (format & HAS.normal) size += 12;
+  if (format & HAS.tangent) size += 16;
+  if (format & HAS.skin) size += 32;
+  if (format & HAS.uv) size += 8;
+  return size;
+}
+
 function parseMesh(r) {
   r.str(); // MDLVxxxx
   if (r.i32() === 9) throw new Error("puppet isn't finished");
   r.i32(); r.i32();
   r.str();
   r.i32();
-  let alt = false, size = r.u32();
-  if (size === 0) {
-    alt = true;
-    while (size !== ALT_HERALD) size = r.u32();
-    size = r.u32();
-  } else if (size === STD_HERALD) size = r.u32();
-  // The newer format adds normals and tangents after the position.
-  const stride = alt ? 80 : 52;
-  if (!size || size % stride) throw new Error(`unknown vertex size ${size}`);
-  const count = size / stride;
-  const pos = new Float32Array(count * 3), uv = new Float32Array(count * 2), weights = new Float32Array(count * 4), joints = new Uint8Array(count * 4);
-  const extra = stride - 52;
+  // A bounding box or other fields can come before the format word, so look for the first spot
+  // where a format, a vertex block and a matching triangle list line up.
+  const v = r.v, len = r.b.length;
+  let found = null;
+  for (let at = r.o; at + 12 <= len && at < r.o + 4096 && !found; at += 1) {
+    const format = v.getUint32(at, true), stride = layout(format);
+    if (!stride) continue;
+    const bytes = v.getUint32(at + 4, true);
+    if (!bytes || bytes % stride || at + 8 + bytes + 4 > len) continue;
+    const count = bytes / stride, indexBytes = v.getUint32(at + 8 + bytes, true);
+    if (!indexBytes || indexBytes % 6 || at + 12 + bytes + indexBytes > len) continue;
+    let ok = true;
+    for (let i = 0; i < indexBytes / 2 && ok; i++) ok = v.getUint16(at + 12 + bytes + i * 2, true) < count;
+    if (ok) found = { at, format, stride, count, indexBytes };
+  }
+  if (!found) throw new Error("no mesh in this model");
+  const { format, stride, count } = found;
+  r.o = found.at + 8;
+  const pos = new Float32Array(count * 3), uv = new Float32Array(count * 2), normal = new Float32Array(count * 3), tangent = new Float32Array(count * 4);
+  const weights = new Float32Array(count * 4), joints = new Uint8Array(count * 4);
+  const skin = !!(format & HAS.skin);
   for (let i = 0; i < count; i++) {
-    pos[i * 3] = r.f32(); pos[i * 3 + 1] = r.f32(); pos[i * 3 + 2] = r.f32();
-    r.o += extra;
-    for (let j = 0; j < 4; j++) joints[i * 4 + j] = r.u32();
-    for (let j = 0; j < 4; j++) weights[i * 4 + j] = r.f32();
-    uv[i * 2] = r.f32(); uv[i * 2 + 1] = r.f32();
+    const start = r.o;
+    for (let j = 0; j < 3; j++) pos[i * 3 + j] = r.f32();
+    // Puppets without a tangent space keep the bones here.
+    if (skin && !(format & (HAS.normal | HAS.tangent))) {
+      for (let j = 0; j < 4; j++) joints[i * 4 + j] = r.u32();
+      for (let j = 0; j < 4; j++) weights[i * 4 + j] = r.f32();
+    }
+    if (format & HAS.normal) for (let j = 0; j < 3; j++) normal[i * 3 + j] = r.f32();
+    if (format & HAS.tangent) for (let j = 0; j < 4; j++) tangent[i * 4 + j] = r.f32();
+    if (skin && format & (HAS.normal | HAS.tangent)) {
+      for (let j = 0; j < 4; j++) joints[i * 4 + j] = r.u32();
+      for (let j = 0; j < 4; j++) weights[i * 4 + j] = r.f32();
+    }
+    if (format & HAS.uv) { uv[i * 2] = r.f32(); uv[i * 2 + 1] = r.f32(); }
+    r.o = start + stride;
   }
   const indexBytes = r.u32();
   const indices = new Uint16Array(indexBytes / 2);
   for (let i = 0; i < indices.length; i++) indices[i] = r.u16();
-  return { pos, uv, weights, joints, indices, alt };
+  return { pos, uv, normal, tangent, weights, joints, indices, alt: !!(format & (HAS.normal | HAS.tangent)), skin, hasNormals: !!(format & HAS.normal), hasTangents: !!(format & HAS.tangent) };
 }
 
 function parseSkeleton(r, alt) {
@@ -279,8 +312,10 @@ WE.loadPuppet = async function (scene, path, layers, uvScale) {
   const mesh = parseMesh(r);
   let bones = [], anims = [];
   try {
-    bones = parseSkeleton(r, mesh.alt);
-    anims = parseAnimations(r, mesh.alt);
+    if (mesh.skin) {
+      bones = parseSkeleton(r, mesh.alt);
+      anims = parseAnimations(r, mesh.alt);
+    }
   } catch (e) {
     // The mesh alone still puts the sheet's pieces together; it just won't move.
     scene.warn(`puppet ${path}: ${e.message}`);
@@ -290,3 +325,76 @@ WE.loadPuppet = async function (scene, path, layers, uvScale) {
 };
 
 WE.parsePuppet = (bytes) => { const r = new Binary(bytes); const mesh = parseMesh(r); const bones = parseSkeleton(r, mesh.alt); return { mesh, bones, anims: parseAnimations(r, mesh.alt) }; };
+
+// A 3D model: a mesh in its own space, drawn with depth through its material, lit by the scene.
+WE.ModelLayer = class extends WE.LayerBase {
+  async init() {
+    const s = this.scene, d = this.data, gl = s.gl;
+    let path = d.model, material = null;
+    if (path.endsWith(".json")) {
+      const m = await s.assets.json(path);
+      if (!m) throw new Error(`model ${path} not found`);
+      path = m.mesh || m.model || m.puppet;
+      material = m.material;
+      if (!path) throw new Error("model has no mesh");
+    }
+    const bytes = await s.assets.bytes(path);
+    if (!bytes) throw new Error(`mesh ${path} not found`);
+    const r = new Binary(bytes);
+    const header = new Binary(bytes);
+    header.str(); header.i32(); header.i32(); header.i32();
+    material ||= header.str();
+    const mesh = parseMesh(r);
+    const mat = await s.assets.json(material);
+    if (!mat) throw new Error(`material ${material} not found`);
+    this.draws = true;
+    this.count = mesh.indices.length;
+    this.vao = gl.createVertexArray();
+    gl.bindVertexArray(this.vao);
+    const A = WE.ATTRIB;
+    const attr = (slot, data, size) => {
+      gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+      gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(slot);
+      gl.vertexAttribPointer(slot, size, gl.FLOAT, false, 0, 0);
+    };
+    attr(0, mesh.pos, 3);
+    attr(1, mesh.uv, 2);
+    attr(A.a_Normal, mesh.hasNormals ? mesh.normal : new Float32Array(mesh.pos.length).map((_, i) => (i % 3 === 2 ? 1 : 0)), 3);
+    if (mesh.hasTangents) attr(A.a_Tangent4, mesh.tangent, 4);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.indices, gl.STATIC_DRAW);
+    gl.bindVertexArray(null);
+    const pass = mat.passes[0];
+    this.depth = pass.depthtest !== "disabled";
+    this.blending = pass.blending || "normal";
+    const tex = pass.textures?.[0] ? await s.texture(pass.textures[0]) : s.white;
+    this.pass = await s.makePass(this, pass, null, null, null, tex);
+    this.tex = tex;
+    s.needsDepth = true;
+  }
+  render() {
+    if (!this.shown()) return;
+    const s = this.scene, gl = s.gl, M = WE.M, w = this.world();
+    let model = M.translate(w.origin[0] - s.width / 2, s.height / 2 - w.origin[1], w.origin[2] || 0);
+    model = M.mul(model, M.mul(M.rotateZ(-w.angle), M.mul(M.rotateY(this.angles[1] || 0), M.rotateX(-(this.angles[0] || 0)))));
+    model = M.mul(model, M.scale(w.scale[0], -w.scale[1], w.scale[2] || 1));
+    const view = this.camera(), mvp = M.mul(view, model);
+    if (this.depth) { gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL); }
+    gl.colorMask(true, true, true, false);
+    s.drawPass(this.pass, s.sceneTarget, this.tex, null, {
+      mvp, blend: this.blending, layer: this,
+      geometry: { draw: () => { gl.bindVertexArray(this.vao); gl.drawElements(gl.TRIANGLES, this.count, gl.UNSIGNED_SHORT, 0); gl.bindVertexArray(s.quadVao); } },
+      set: (set) => {
+        set("g_ModelMatrix", model);
+        set("g_ViewProjectionMatrix", view);
+        set("g_AltModelMatrix", model);
+        set("g_AltViewProjectionMatrix", view);
+        set("g_NormalModelMatrix", [model[0], model[1], model[2], model[4], model[5], model[6], model[8], model[9], model[10]]);
+        set("g_EyePosition", [0, 0, 1000]);
+      },
+    });
+    gl.disable(gl.DEPTH_TEST);
+    gl.colorMask(true, true, true, true);
+  }
+};

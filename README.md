@@ -82,7 +82,7 @@ wallpapers, and handles pausing.
 - `shader.js` translates Wallpaper Engine's shaders to GLSL ES 3.00 with its own preprocessor, then repairs
   what the compiler rejects from its error messages, since they rely on HLSL's and desktop GL's loose typing
 - `scene.js` holds the layers, effect chains, framebuffers, keyframes, parallax and bloom
-- `puppet.js` reads `.mdl` meshes and skeletons, `particles.js` simulates particle systems, `text.js` draws
+- `puppet.js` reads `.mdl` meshes, skeletons and 3D models, `particles.js` simulates particle systems, `text.js` draws
   text and plays sound
 - `script.js` runs SceneScript in a Worker with no network access or access to the app's commands
 
@@ -189,8 +189,8 @@ cargo test --workspace
 - HTML wallpapers cannot be paused externally. The player posts `{ backdrop: { paused, muted, volume, speed } }`
   to the page; pages that listen for this message can stop their own animation loop.
 - Codec detection reads MP4 and MOV headers only; other formats show no codec.
-- Scene wallpapers run at 30 fps and need Wallpaper Engine installed for its stock assets. 3D models aren't drawn;
-  lights are simple point lights; layers a script creates at run time aren't drawn. Application wallpapers aren't
+- Scene wallpapers run at 30 fps and need Wallpaper Engine installed for its stock assets. 3D models are drawn
+  without animation, lights are simple point lights, and layers a script creates at run time aren't drawn. Application wallpapers aren't
   supported, because they would mean running downloaded programs.
 - Workshop downloads need Steam and a copy of Wallpaper Engine, which has to stay installed (it doesn't have
   to run). The anime filter relies on how uploaders tag and title their items, so some still get through.

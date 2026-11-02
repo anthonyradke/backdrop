@@ -72,6 +72,25 @@ for (const [name, [repo, sub]] of Object.entries(SCENES)) {
   scenes[name] = dest;
 }
 
+// No public wallpaper has a video texture, so one is made here: a test clip in a .tex container
+// (TEXB0004 with the MP4 flag), on one image layer.
+function videoScene(dest, clip) {
+  const u32 = (n) => { const b = Buffer.alloc(4); b.writeUInt32LE(n >>> 0); return b; };
+  const magic = (m) => Buffer.from(`${m}\0`, "latin1");
+  const mp4 = fs.readFileSync(clip);
+  const tex = Buffer.concat([
+    magic("TEXV0005"), magic("TEXI0001"), u32(0), u32(2), u32(160), u32(90), u32(160), u32(90), u32(0),
+    magic("TEXB0004"), u32(1), u32(0xffffffff), u32(1),
+    u32(1), u32(1), u32(2), Buffer.from("\0"), u32(1), u32(160), u32(90), u32(0), u32(mp4.length), u32(mp4.length), mp4,
+  ]);
+  const write = (f, data) => { fs.mkdirSync(path.dirname(path.join(dest, f)), { recursive: true }); fs.writeFileSync(path.join(dest, f), data); };
+  write("materials/clip.tex", tex);
+  write("materials/clip.json", JSON.stringify({ passes: [{ shader: "genericimage2", blending: "normal", textures: ["clip"] }] }));
+  write("models/clip.json", JSON.stringify({ material: "materials/clip.json", autosize: true }));
+  write("project.json", JSON.stringify({ type: "scene", file: "scene.json", title: "video texture" }));
+  write("scene.json", JSON.stringify({ general: { orthogonalprojection: { width: 320, height: 180 }, clearcolor: "0 0 0" }, camera: {}, objects: [{ id: 1, name: "clip", image: "models/clip.json", origin: "160 90 0", size: "320 180" }] }));
+}
+
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".json": "application/json" };
 const server = http.createServer((q, r) => {
   const u = decodeURIComponent(q.url.split("?")[0]);
@@ -86,6 +105,10 @@ const server = http.createServer((q, r) => {
 });
 const PAGE = `<!doctype html><body style="margin:0"><canvas id=c></canvas>${["tex", "shader", "scene", "text", "particles", "puppet", "script"].map((s) => `<script src=/ui/scene/${s}.js></script>`).join("")}`;
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
+for (const codec of ["h264", "vp9"]) {
+  if (only && only !== `video-${codec}`) continue;
+  videoScene(path.join(work, "scenes", `video-${codec}`), path.join(here, "fixtures", `clip-${codec}.mp4`));
+}
 const base = `http://127.0.0.1:${server.address().port}`;
 
 const shaders = [];
@@ -139,6 +162,37 @@ console.log(`shader variants: ${report.variants.ok} ok, ${report.variants.failed
 await page.close();
 
 let failed = report.variants.failed;
+
+// Video textures: the frame has to change while it plays.
+for (const codec of ["h264", "vp9"]) {
+  if (only && only !== `video-${codec}`) continue;
+  const p = await browser.newPage();
+  await p.goto(base);
+  const r = await p.evaluate(async (codec) => {
+    const type = codec === "h264" ? 'video/mp4; codecs="avc1.42E01E"' : 'video/mp4; codecs="vp09.00.10.08"';
+    if (!document.createElement("video").canPlayType(type)) return { skipped: `${codec} can't play in this browser` };
+    const s = new WE.Scene(document.getElementById("c"), { base: `/scene/video-${codec}/`, stock: "/assets/", keepBuffer: true });
+    await s.load();
+    const grab = () => { const b = new Uint8Array(320 * 180 * 4); s.gl.bindFramebuffer(s.gl.FRAMEBUFFER, s.sceneTarget.fb); s.gl.readPixels(0, 0, 320, 180, s.gl.RGBA, s.gl.UNSIGNED_BYTE, b); return b; };
+    s.start();
+    await new Promise((d) => setTimeout(d, 1500));
+    const a = grab();
+    await new Promise((d) => setTimeout(d, 700));
+    const b = grab();
+    s.destroy();
+    let changed = 0, lit = 0;
+    for (let i = 0; i < a.length; i += 4) { if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) > 20) changed++; if (b[i] + b[i + 1] + b[i + 2] > 60) lit++; }
+    return { changed: changed / (a.length / 4), lit: lit / (a.length / 4), warnings: s.warnings };
+  }, codec);
+  report.scenes[`video-${codec}`] = r;
+  if (r.skipped) console.log(`video-${codec}: skipped, ${r.skipped}`);
+  else {
+    const ok = r.lit > 0.3 && r.changed > 0.01 && !r.warnings.length;
+    if (!ok) failed++;
+    console.log(`video-${codec}: lit ${r.lit.toFixed(2)}, changed between frames ${r.changed.toFixed(2)}, ${r.warnings.length} warnings${ok ? "" : " FAILED"}`);
+  }
+  await p.close();
+}
 for (const name of Object.keys(scenes)) {
   const p = await browser.newPage();
   const errors = [];

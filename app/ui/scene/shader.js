@@ -424,7 +424,7 @@ WE.resolveCombos = function (meta, set, textures) {
 };
 
 // Attribute slots are fixed so a mesh works with any program.
-WE.ATTRIB = { a_Position: 0, a_TexCoord: 1, a_TexCoordVec4: 1, a_Color: 2, a_TexCoordC2: 3, a_TexCoordVec4C1: 4, a_BlendIndices: 5, a_BlendWeights: 6, a_Normal: 7 };
+WE.ATTRIB = { a_Position: 0, a_TexCoord: 1, a_TexCoordVec4: 1, a_Color: 2, a_TexCoordC2: 3, a_TexCoordVec4C1: 4, a_BlendIndices: 5, a_BlendWeights: 6, a_Normal: 7, a_Tangent4: 8 };
 
 WE.buildProgram = function (gl, source, combos) {
   const defines = {};

@@ -74,6 +74,18 @@ const M = {
   ortho: (l, r, b, t) => [2 / (r - l), 0, 0, 0, 0, 2 / (t - b), 0, 0, 0, 0, -1e-5, 0, -(r + l) / (r - l), -(t + b) / (t - b), 0, 1],
   scale: (x, y, z) => [x, 0, 0, 0, 0, y, 0, 0, 0, 0, z, 0, 0, 0, 0, 1],
   rotateX(a) { const c = Math.cos(a), s = Math.sin(a); return [1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1]; },
+  lookAt(eye, center, up) {
+    const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    const norm = (v) => { const l = Math.hypot(...v) || 1; return v.map((x) => x / l); };
+    const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const f = norm(sub(center, eye)), s = norm(cross(f, up)), u = cross(s, f);
+    return [s[0], u[0], -f[0], 0, s[1], u[1], -f[1], 0, s[2], u[2], -f[2], 0, -dot(s, eye), -dot(u, eye), dot(f, eye), 1];
+  },
+  perspective(fovY, aspect, near, far) {
+    const f = 1 / Math.tan(fovY / 2), a = (far + near) / (near - far), b = (2 * far * near) / (near - far);
+    return [f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, a, -1, 0, 0, b, 0];
+  },
   rotateY(a) { const c = Math.cos(a), s = Math.sin(a); return [c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1]; },
   mul(a, b) {
     const o = new Array(16);
@@ -658,6 +670,15 @@ WE.Scene = class {
     const f = 2000 / this.height * zoom, near = +(this.value(g.nearz) ?? 0.01) || 0.01, far = +(this.value(g.farz) ?? 10000) || 10000;
     const za = (far + near) / (near - far), zb = (2 * far * near) / (near - far);
     this.perspectiveCamera = [f * this.height / this.width, 0, 0, 0, 0, f, 0, 0, 0, 0, za, -1, 0, 0, zb - za * 1000, 1000];
+    if (this.spatial) {
+      // A scene made in 3D has a real camera. Layers are laid out with y running down from the middle
+      // of the picture, so that's undone first, and rows run down at the end.
+      const cam = data.camera || {}, eye = WE.parseVec(cam.eye ?? "0 0 1"), center = WE.parseVec(cam.center ?? "0 0 0"), up = WE.parseVec(cam.up ?? "0 1 0");
+      const fov = (+(this.value(g.perspectiveoverridefov) ?? 0) || +(this.value(g.fov) ?? 50)) * Math.PI / 180;
+      const unlay = [1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0, this.width / 2, this.height / 2, 0, 1];
+      const view = M.mul(M.lookAt(eye, center, up), M.mul(M.translate(-this.width / 2, -this.height / 2), M.mul(M.scale(1, 1, 1), M.mul(M.translate(this.width / 2, this.height / 2), unlay))));
+      this.perspectiveCamera = M.mul(M.scale(1, -1, 1), M.mul(M.perspective(fov, this.width / this.height, near, far), view));
+    }
 
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.CULL_FACE);
@@ -673,6 +694,12 @@ WE.Scene = class {
     this.quadData = new Float32Array(30);
 
     this.sceneTarget = new Target(gl, this.fbWidth, this.fbHeight, this.hdr);
+    // Models are depth tested; the buffer is cheap and every frame clears it.
+    this.depthBuffer = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, this.depthBuffer);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, this.fbWidth, this.fbHeight);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneTarget.fb);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.depthBuffer);
     this.snapshot = new Target(gl, this.fbWidth, this.fbHeight, this.hdr);
     this.white = solidTexture(gl, [255, 255, 255, 255]);
     this.black = solidTexture(gl, [0, 0, 0, 0]);
@@ -723,6 +750,7 @@ WE.Scene = class {
       else if (o.particle && WE.ParticleLayer) layer = new WE.ParticleLayer(this, o);
       else if (o.sound && WE.SoundLayer) layer = new WE.SoundLayer(this, o);
       else if (o.light) layer = new LightLayer(this, o);
+      else if (o.model && WE.ModelLayer) layer = new WE.ModelLayer(this, o);
       else layer = new GroupLayer(this, o);
       await layer.init();
       return layer;
@@ -1136,7 +1164,8 @@ ${fs}`]]) {
     gl.colorMask(true, true, true, true);
     const c = this.clearEnabled ? this.clearColor : [0, 0, 0];
     gl.clearColor(c[0], c[1], c[2], 1);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.depthMask(true);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     this.draws = 0;
     for (const l of this.order) {
       try { l.render(); } catch (e) { this.warn(`render "${l.name}": ${e.message}`); l.render = () => {}; }
