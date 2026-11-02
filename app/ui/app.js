@@ -38,7 +38,7 @@ function mediaVideoFailed() {
   render();
   return true;
 }
-const kindLabel = (e) => (e.kind === "web" ? "HTML" : e.file?.endsWith(".gif") ? "GIF" : e.kind === "video" ? tr("Video") : tr("Image"));
+const kindLabel = (e) => (e.kind === "web" ? "HTML" : e.kind === "scene" ? tr("Scene") : e.file?.endsWith(".gif") ? "GIF" : e.kind === "video" ? tr("Video") : tr("Image"));
 const trayName = () => tr("tray");
 const CODEC = { h264: "H.264", hevc: "HEVC", av1: "AV1", vp9: "VP9", vp8: "VP8", prores: "ProRes", mpeg4: "MPEG-4" };
 const codecName = (c) => CODEC[c] ?? String(c).toUpperCase();
@@ -157,7 +157,7 @@ const thumbQueue = new Set();
 let thumbBusy = false;
 
 function queueThumbs() {
-  for (const it of S.state?.items ?? []) if (!it.poster && it.kind !== "web" && !thumbQueue.has(it.id) && !thumbFailed.has(it.id)) thumbQueue.add(it.id);
+  for (const it of S.state?.items ?? []) if (!it.poster && (it.kind !== "web") && (it.kind !== "scene" || it.preview) && !thumbQueue.has(it.id) && !thumbFailed.has(it.id)) thumbQueue.add(it.id);
   pumpThumbs();
 }
 const thumbFailed = new Set();
@@ -171,8 +171,8 @@ async function pumpThumbs() {
   if (!it || it.poster) return pumpThumbs();
   thumbBusy = true;
   try {
-    const src = (it.kind === "video" ? videoUrl : mediaUrl)(`${it.id}/${it.file}`);
-    const { data, poster, width, height } = await grabFrame(src, it.kind).catch((e) => {
+    const src = (it.kind === "video" ? videoUrl : mediaUrl)(`${it.id}/${it.kind === "scene" ? it.preview : it.file}`);
+    const { data, poster, width, height } = await grabFrame(src, it.kind === "scene" ? "image" : it.kind).catch((e) => {
       // One retry over loopback if media:// can't decode video here.
       if (it.kind === "video" && mediaVideoFailed()) return grabFrame(videoUrl(`${it.id}/${it.file}`), it.kind);
       throw e;
@@ -533,6 +533,7 @@ const FILTERS = {
   live: [(e) => liveOn(e.id).length > 0, "Live"],
   rotation: [(e) => inRotation(e.id), "Rotation"],
   video: [(e) => e.kind === "video", "Videos"],
+  scene: [(e) => e.kind === "scene", "Scenes"],
   image: [(e) => e.kind === "image", "Images"],
   web: [(e) => e.kind === "web", "HTML"],
 };
@@ -557,7 +558,7 @@ function heroHtml(e) {
   const displays = S.state.displays;
   const rot = inRotation(e.id);
   const src = posterUrl(e);
-  const type = e.kind === "web" ? tr("HTML page") : kindLabel(e) === "GIF" ? tr("Animated GIF") : e.kind === "video" ? tr("Video") : tr("Image");
+  const type = e.kind === "web" ? tr("HTML page") : e.kind === "scene" ? tr("Scene") : kindLabel(e) === "GIF" ? tr("Animated GIF") : e.kind === "video" ? tr("Video") : tr("Image");
   const meta = [
     type,
     e.width ? `${e.width} × ${e.height}${resLabel(e) ? ` · ${resLabel(e)}` : ""}` : null,
@@ -676,7 +677,7 @@ function wsPercent(id) {
   return p ? (p[1] ? Math.floor((p[0] * 100) / p[1]) : 0) : null;
 }
 const wsWaiting = (id) => (wsPercent(id) !== null ? tr("Downloading {p}%", { p: wsPercent(id) }) : tr("Waiting for Steam"));
-const wsKindLabel = (i) => (i.kind === "web" ? "HTML" : tr("Video"));
+const wsKindLabel = (i) => (i.kind === "web" ? "HTML" : i.kind === "scene" ? tr("Scene") : tr("Video"));
 // "3840 x 2160" -> resLabel's "4K"; odd tags like "Ultrawide 3440 x 1440" still parse.
 function wsRes(i) {
   const m = i.resolution?.match(/(\d+)\s*x\s*(\d+)/);
@@ -703,7 +704,7 @@ function wsEmptyHtml() {
   const w = S.ws;
   if (w.error) return `<div class="empty"><h2>${tr("Couldn't reach Steam")}</h2>${esc(w.error)}
     <div class="acts"><button class="btn pri press" data-act="wsRetry">${tr("Try again")}</button></div></div>`;
-  return `<div class="empty">${w.items ? (w.view === "discover" ? tr("Nothing matches.") : tr("Steam hasn't downloaded any video or HTML wallpapers for Wallpaper Engine.")) : tr("Loading…")}</div>`;
+  return `<div class="empty">${w.items ? (w.view === "discover" ? tr("Nothing matches.") : tr("Steam hasn't downloaded any wallpapers for Wallpaper Engine.")) : tr("Loading…")}</div>`;
 }
 
 // Clicking a tile opens this popup: the whole preview, uncropped, with the details and actions under it.
@@ -721,7 +722,7 @@ function wsModalHtml(i) {
   else acts = `<button class="btn pri big press" data-act="wsSubscribe" data-id="${i.id}">${ICON.download}${tr("Download")}</button>`;
   if (!lib && w.view !== "steam") acts += `<button class="btn big press" data-act="wsAdd" data-id="${i.id}">${tr("Already downloaded? Add it now")}</button>`;
   const meta = [
-    i.kind === "web" ? tr("HTML page") : tr("Video"),
+    i.kind === "web" ? tr("HTML page") : wsKindLabel(i),
     i.resolution ? `${i.resolution}${wsRes(i) ? ` · ${wsRes(i)}` : ""}` : null,
     i.size ? fmtSize(i.size) : null,
     tr("{n} subscribers", { n: i.subscriptions.toLocaleString() }),
@@ -771,7 +772,7 @@ function renderWorkshop() {
 
   return `<div class="page" data-key="p-workshop">
     <header class="head"><h1>${tr("Workshop")}</h1>
-      <p>${tr("Video and HTML wallpapers from the Wallpaper Engine Steam Workshop. Click one to preview it.")}</p></header>
+      <p>${tr("Wallpapers from the Wallpaper Engine Steam Workshop. Click one to preview it.")}</p></header>
     <section class="shelf">
       <div class="bar">
         ${views.map(([k, t]) => `<button class="chip press ${w.view === k ? "on" : ""}" data-act="wsView" data-v="${k}">${t}</button>`).join("")}
@@ -780,7 +781,7 @@ function renderWorkshop() {
         <select id="ws-genre" class="select">${genres.map(([v, t]) => `<option value="${esc(v)}" ${w.genre === v ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>` : ""}
       </div>
       ${discover ? `<div class="bar sub">${sorts.map(([v, t]) => `<button class="chip press ${w.sort === v ? "on" : ""}" data-act="wsSort" data-v="${v}">${t}</button>`).join("")}
-        <span class="sp"></span>${seg("wsKind", w.kind, [["video", tr("Video")], ["web", "HTML"]])}</div>` : ""}
+        <span class="sp"></span>${seg("wsKind", w.kind, [["video", tr("Video")], ["scene", tr("Scene")], ["web", "HTML"]])}</div>` : ""}
       ${note}
       <div class="grid-wrap">${grid}</div>
     </section>

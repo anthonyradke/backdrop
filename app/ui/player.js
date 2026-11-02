@@ -43,6 +43,20 @@ function swap(p) {
       report(`can't play ${p.src}: ${why}`);
     });
     next.src = url(p.src);
+  } else if (p.kind === "scene") {
+    next = document.createElement("canvas");
+    const scene = new WE.Scene(next, { base: url(p.src), stock: `${BASE}we-assets/`, log: report });
+    next.scene = scene;
+    scene.load().then(() => {
+      if (el !== next) return scene.destroy();
+      show(cur);
+      scene.start();
+      reveal();
+      for (const w of scene.warnings.slice(0, 40)) report(`${p.src}: ${w}`);
+    }, (e) => {
+      report(`scene ${p.src} failed: ${e.message || e}`);
+      showPreview(p, next);
+    });
   } else if (p.kind === "web") {
     next = document.createElement("iframe");
     next.setAttribute("allow", "autoplay; fullscreen");
@@ -65,7 +79,19 @@ function swap(p) {
   }
 }
 
+// A scene that can't run still has a picture of itself.
+async function showPreview(p, canvas) {
+  const project = await fetch(url(`${p.src}project.json`)).then((r) => r.json()).catch(() => null);
+  if (el !== canvas || !project?.preview) return;
+  const img = document.createElement("img");
+  img.src = url(p.src + project.preview);
+  img.className = "layer on";
+  img.style.objectFit = "cover";
+  document.body.appendChild(img);
+}
+
 function dispose(node) {
+  node.scene?.destroy();
   if (node.tagName === "VIDEO") {
     node.pause();
     node.removeAttribute("src");
@@ -76,10 +102,10 @@ function dispose(node) {
 
 // "Fit height" is Fill for media wider than the screen and Fit for narrower media.
 function applyFit(p) {
-  if (el.tagName !== "VIDEO" && el.tagName !== "IMG") return;
+  if (el.tagName !== "VIDEO" && el.tagName !== "IMG" && el.tagName !== "CANVAS") return;
   let fit = FIT[p.fit] || "cover";
   if (p.fit === "height") {
-    const w = el.videoWidth || el.naturalWidth, h = el.videoHeight || el.naturalHeight;
+    const w = el.videoWidth || el.naturalWidth || el.width, h = el.videoHeight || el.naturalHeight || el.height;
     fit = w && h && w / h < innerWidth / innerHeight ? "contain" : "cover";
   }
   el.style.objectFit = fit;
@@ -93,6 +119,15 @@ function capture(p) {
   const id = p.capture;
   if (!id || captured.has(id)) return;
   captured.add(id);
+  if (p.kind === "scene") {
+    // The frame comes from the renderer, once the scene has had time to settle.
+    setTimeout(() => {
+      const scene = el.scene;
+      if (!scene?.running) { captured.delete(id); return; }
+      invoke("save_frame", { id, data: scene.frameDataUrl() }).catch((e) => report(`no still frame for ${p.src}: ${e}`));
+    }, 4000);
+    return;
+  }
   // Waits a moment so the visible player has settled on media:// or the loopback fallback.
   setTimeout(() => {
     const base = el.dataset.base || BASE;
@@ -154,11 +189,26 @@ function show(p) {
     el.defaultPlaybackRate = el.playbackRate = p.speed || 1;
     if (p.paused) el.pause();
     else el.play().catch(() => { el.muted = true; el.play().catch((e) => report(`play() refused: ${e}`)); });
+  } else if (el.scene) {
+    el.scene.speed = p.speed || 1;
+    el.scene.setAudio?.(p.muted, p.volume);
+    el.scene.setPaused(p.paused);
   } else if (el.tagName === "IFRAME") {
     // HTML wallpapers can listen for this to stop their animation loop.
     try { el.contentWindow.postMessage({ backdrop: { paused: p.paused, muted: p.muted, volume: p.volume, speed: p.speed } }, "*"); } catch {}
   }
 }
+
+// Scenes with parallax or cursor effects need the mouse, which never reaches a window behind the
+// desktop icons, so they ask where it is.
+setInterval(async () => {
+  const scene = el?.scene;
+  if (!scene?.running || scene.paused || !cur?.rect) return;
+  const pos = await invoke("cursor_position").catch(() => null);
+  if (!pos) return;
+  const [x, y, w, h] = cur.rect;
+  scene.pointerTarget = [Math.min(1, Math.max(0, (pos[0] - x) / w)), Math.min(1, Math.max(0, (pos[1] - y) / h))];
+}, 50);
 
 me.listen("player:update", (e) => show(e.payload));
 invoke("player_init").then((p) => { if (!p) report("no wallpaper assigned to this window"); show(p); }, report);

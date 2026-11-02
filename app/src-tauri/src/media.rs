@@ -4,8 +4,11 @@
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Component, Path, PathBuf};
+use std::sync::Mutex;
 use tauri::http::{header, Request, Response, StatusCode};
 
+/// First path segment of files from Wallpaper Engine's own install.
+const STOCK: &str = "we-assets";
 /// Largest body sent for one range request; the player asks again for the rest.
 const MAX_CHUNK: u64 = 4 << 20;
 
@@ -62,14 +65,32 @@ fn percent_decode(s: &str) -> Option<String> {
 /// Maps a request path like `/<id>/web/js/app.js` to a file under `root`, refusing anything that
 /// could escape it.
 pub fn resolve(root: &Path, url_path: &str) -> Option<PathBuf> {
+    resolve_in(root, url_path, stock_dir)
+}
+
+/// Wallpaper Engine's install doesn't move, and finding it means reading Steam's library list.
+fn stock_dir() -> Option<PathBuf> {
+    static DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
+    let mut dir = DIR.lock().unwrap();
+    if dir.is_none() {
+        *dir = crate::scene::stock_dir();
+    }
+    dir.clone()
+}
+
+/// `/we-assets/...` reads from Wallpaper Engine's stock assets, for scene wallpapers.
+fn resolve_in(root: &Path, url_path: &str, stock: impl FnOnce() -> Option<PathBuf>) -> Option<PathBuf> {
     let decoded = percent_decode(url_path)?;
     let rel = decoded.trim_start_matches('/');
     let mut parts = rel.split('/');
     let id = parts.next()?;
-    if !crate::common::valid_id(id) {
+    let mut path = if id == STOCK {
+        stock()?
+    } else if crate::common::valid_id(id) {
+        root.join(id)
+    } else {
         return None;
-    }
-    let mut path = root.join(id);
+    };
     let mut any = false;
     for p in parts {
         if p.is_empty() || p.contains('\\') || p.contains(':') {
@@ -194,5 +215,17 @@ mod tests {
         assert_eq!(resolve(root, "/nothex/media.mp4"), None);
         assert_eq!(resolve(root, &format!("/{id}")), None);
         assert_eq!(resolve(root, &format!("/{id}/C:%5Cx")), None);
+    }
+
+    #[test]
+    fn stock_paths_stay_inside_the_install() {
+        let root = Path::new("/lib");
+        let stock = || Some(PathBuf::from("/we"));
+        assert_eq!(resolve_in(root, "/we-assets/shaders/common.h", stock), Some(PathBuf::from("/we/shaders/common.h")));
+        assert_eq!(resolve_in(root, "/we-assets/effects/a%20b/e.json", stock), Some(PathBuf::from("/we/effects/a b/e.json")));
+        for bad in ["/we-assets/../x", "/we-assets/%2e%2e/x", "/we-assets/a/..%2f..%2fx", "/we-assets/C:%5Cx", "/we-assets"] {
+            assert_eq!(resolve_in(root, bad, stock), None, "{bad}");
+        }
+        assert_eq!(resolve_in(root, "/we-assets/shaders/common.h", || None), None);
     }
 }

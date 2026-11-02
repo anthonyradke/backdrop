@@ -1027,6 +1027,12 @@ ${fs}`]]) {
     this.raf = requestAnimationFrame(tick);
   }
 
+  // A JPEG of the current frame. The canvas only holds a frame right after drawing one.
+  frameDataUrl() {
+    this.renderAt(this.time);
+    return this.canvas.toDataURL("image/jpeg", 0.9);
+  }
+
   setPaused(p) {
     this.paused = p;
     for (const v of this.videos) p ? v.video.pause() : v.video.play().catch(() => {});

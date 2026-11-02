@@ -46,6 +46,7 @@ impl Library {
     pub fn player_src(item: &Item) -> String {
         match item.kind {
             Kind::Web => format!("{}/web/index.html", item.id),
+            Kind::Scene => format!("{}/{}/", item.id, crate::scene::DIR),
             _ => format!("{}/{}", item.id, item.file),
         }
     }
@@ -106,6 +107,9 @@ pub fn import_linked(root: &Path, src: &Path, existing: &HashMap<String, Item>) 
 }
 
 fn import_inner(root: &Path, src: &Path, existing: &HashMap<String, Item>, link: bool) -> io::Result<Item> {
+    if crate::scene::is_scene(src) {
+        return crate::scene::import(root, src, existing);
+    }
     let file_name = src.file_name().and_then(|n| n.to_str()).unwrap_or("wallpaper").to_string();
     let staging = root.join(format!(".import-{}-{}", std::process::id(), common::now()));
     let _ = std::fs::remove_dir_all(&staging);
@@ -162,6 +166,7 @@ fn import_inner(root: &Path, src: &Path, existing: &HashMap<String, Item>, link:
             added: common::now(),
             tags: vec![],
             workshop: None,
+            preview: None,
         };
         write_meta(&dir, &item)?;
         Ok(item)

@@ -65,6 +65,8 @@ pub struct PlayerParams {
     pub capture: Option<String>,
     /// Loopback server base URL, tried when a video fails over media://.
     pub fallback: Option<String>,
+    /// The window's rectangle in physical pixels, for scenes that follow the cursor.
+    pub rect: [i32; 4],
 }
 
 /// A taskbar strip along the bottom of a display, in percent of the player window.
@@ -378,6 +380,7 @@ impl Engine {
                         },
                         capture: (wants_frame && !frame.is_file()).then(|| item.id.clone()),
                         fallback: core.loopback.clone(),
+                        rect: [d.x, d.y, d.width as i32, d.height as i32],
                     };
                     if self.ensure_player(&core, d, params) {
                         wanted.insert(d.key.clone());

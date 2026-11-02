@@ -7,6 +7,7 @@ mod loopback;
 mod media;
 mod platform;
 mod rotation;
+mod scene;
 mod steamapi;
 mod update;
 mod workshop;
@@ -409,6 +410,7 @@ pub fn run() {
             commands::rename_item,
             commands::delete_local,
             commands::set_wallpaper,
+            commands::cursor_position,
             commands::span_wallpaper,
             commands::clear_wallpaper,
             commands::update_settings,

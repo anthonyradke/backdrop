@@ -365,6 +365,13 @@ pub fn player_init(window: WebviewWindow, core: State<'_, Core>) -> Option<Playe
     core.players.lock().unwrap().get(window.label()).cloned()
 }
 
+/// Where the cursor is in physical pixels. Wallpapers sit behind the icons and get no mouse events,
+/// so scenes that follow the cursor ask for it.
+#[tauri::command]
+pub fn cursor_position(app: AppHandle) -> Option<(f64, f64)> {
+    app.cursor_position().ok().map(|p| (p.x, p.y))
+}
+
 /// Players report problems (a video that won't decode, autoplay refused) into backdrop.log.
 #[tauri::command]
 pub fn player_log(window: WebviewWindow, msg: String) {

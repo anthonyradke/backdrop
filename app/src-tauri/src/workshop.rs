@@ -1,5 +1,5 @@
-//! The Steam Workshop for Wallpaper Engine (app 431960): browsing it, and taking the video and
-//! HTML wallpapers Steam downloads into the library.
+//! The Steam Workshop for Wallpaper Engine (app 431960): browsing it, and taking the video, HTML
+//! and scene wallpapers Steam downloads into the library.
 //!
 //! Workshop files can't be downloaded without owning Wallpaper Engine, so Backdrop leaves that to
 //! Steam: "Download" asks the Steam client to subscribe in the background (`steamapi`, the way
@@ -81,6 +81,7 @@ pub enum WsKind {
     #[default]
     Video,
     Web,
+    Scene,
 }
 
 impl WsKind {
@@ -88,6 +89,7 @@ impl WsKind {
         match self {
             WsKind::Video => "Video",
             WsKind::Web => "Web",
+            WsKind::Scene => "Scene",
         }
     }
 }
@@ -247,28 +249,76 @@ fn looks_anime(text: &str) -> bool {
 }
 
 /// Turns a workshop entry into a browse item, or None if it's not something Backdrop shows: not
-/// Wallpaper Engine, banned, not video/HTML, rated above Everyone, not in one of `GENRES`, or with
+/// Wallpaper Engine, banned, not video/HTML/scene, rated above Everyone, not in one of `GENRES`, or with
 /// an anime word in it.
+fn kind_of(tags: &[&str]) -> Option<WsKind> {
+    if tags.contains(&"Video") {
+        Some(WsKind::Video)
+    } else if tags.contains(&"Web") {
+        Some(WsKind::Web)
+    } else if tags.contains(&"Scene") {
+        Some(WsKind::Scene)
+    } else {
+        None
+    }
+}
+
+fn file_size(d: &Detail) -> u64 {
+    match &d.file_size {
+        serde_json::Value::String(s) => s.parse().unwrap_or(0),
+        v => v.as_u64().unwrap_or(0),
+    }
+}
+
+/// Details of an item Steam downloaded, whatever it's tagged.
+fn described(d: Detail) -> Option<WsItem> {
+    let tags: Vec<&str> = d.tags.iter().map(|t| t.tag.as_str()).collect();
+    if d.result != 1 {
+        return None;
+    }
+    let kind = kind_of(&tags)?;
+    let genres = tags.iter().filter(|t| GENRES.contains(t)).map(|t| t.to_string()).collect();
+    let size = file_size(&d);
+    Some(WsItem {
+        resolution: tags.iter().find(|t| t.contains(" x ")).map(|t| t.to_string()),
+        id: d.publishedfileid,
+        title: d.title,
+        preview: d.preview_url,
+        kind,
+        genres,
+        size,
+        subscriptions: d.subscriptions,
+        description: d.description.chars().take(600).collect(),
+        creator: d.creator,
+    })
+}
+
+fn local_details(l: Local) -> WsItem {
+    WsItem {
+        id: l.id,
+        title: l.title,
+        preview: String::new(),
+        kind: l.kind,
+        genres: vec![],
+        resolution: None,
+        size: 0,
+        subscriptions: 0,
+        description: String::new(),
+        creator: String::new(),
+    }
+}
+
 fn allowed(d: Detail) -> Option<WsItem> {
     let tags: Vec<&str> = d.tags.iter().map(|t| t.tag.as_str()).collect();
     if d.result != 1 || d.banned != 0 || d.consumer_app_id != APP_ID || tags.iter().any(|t| EXCLUDED.contains(t)) {
         return None;
     }
-    let kind = if tags.contains(&"Video") {
-        WsKind::Video
-    } else if tags.contains(&"Web") {
-        WsKind::Web
-    } else {
-        return None;
-    };
+    let kind = kind_of(&tags)?;
     let genres: Vec<String> = tags.iter().filter(|t| GENRES.contains(t)).map(|t| t.to_string()).collect();
     if genres.is_empty() || !tags.contains(&"Everyone") || looks_anime(&d.title) || looks_anime(&d.description) {
         return None;
     }
-    let size = match &d.file_size {
-        serde_json::Value::String(s) => s.parse().unwrap_or(0),
-        v => v.as_u64().unwrap_or(0),
-    };
+    let size = file_size(&d);
     Some(WsItem {
         resolution: tags.iter().find(|t| t.contains(" x ")).map(|t| t.to_string()),
         id: d.publishedfileid,
@@ -348,28 +398,36 @@ struct Project {
 }
 
 /// What Steam has downloaded for one item: the path to import (video file, or the folder for
-/// HTML) and its title.
+/// HTML and scenes) and its title.
 pub struct Local {
     pub id: String,
     pub src: PathBuf,
     pub title: String,
+    pub kind: WsKind,
 }
 
 fn read_local(dir: &Path, id: &str) -> Option<Local> {
-    let p: Project = serde_json::from_slice(&std::fs::read(dir.join("project.json")).ok()?).ok()?;
+    let bytes = std::fs::read(dir.join("project.json")).ok()?;
+    // Windows editors leave a byte order mark, which serde refuses.
+    let p: Project = serde_json::from_str(String::from_utf8_lossy(&bytes).trim_start_matches('\u{feff}')).ok()?;
+    let kind = p.kind.to_ascii_lowercase();
+    // A scene's file is usually inside its package.
+    if kind == "scene" {
+        return Some(Local { id: id.into(), src: dir.to_path_buf(), title: p.title, kind: WsKind::Scene });
+    }
     let file = dir.join(&p.file);
     if p.file.is_empty() || p.file.contains("..") || !file.is_file() {
         return None;
     }
-    let src = match p.kind.to_ascii_lowercase().as_str() {
-        "video" => file,
-        "web" if file.file_name()? == "index.html" => dir.to_path_buf(),
+    let (src, kind) = match kind.as_str() {
+        "video" => (file, WsKind::Video),
+        "web" if file.file_name()? == "index.html" => (dir.to_path_buf(), WsKind::Web),
         _ => return None,
     };
-    Some(Local { id: id.into(), src, title: p.title })
+    Some(Local { id: id.into(), src, title: p.title, kind })
 }
 
-/// Every downloaded video/HTML wallpaper Backdrop could play.
+/// Every downloaded video/HTML/scene wallpaper Backdrop could play.
 pub fn local_items() -> Vec<Local> {
     let mut out = vec![];
     for root in content_dirs() {
@@ -393,15 +451,18 @@ fn local_item(id: &str) -> Option<Local> {
     content_dirs().into_iter().find_map(|root| read_local(&root.join(id), id))
 }
 
-/// Details for downloaded items, filtered like browsing. Items Steam no longer knows about (or
-/// with no network) are left out.
+/// Everything Steam has downloaded. These were subscribed to on purpose, so unlike browsing the
+/// only filter is what the user hid. With no network, or for items Steam no longer knows about,
+/// the title comes from the download itself.
 pub fn subscribed(hidden: &Hidden) -> Result<Vec<WsItem>, String> {
-    let ids: Vec<String> = local_items().into_iter().map(|l| l.id).collect();
-    let mut out = vec![];
+    let locals = local_items();
+    let ids: Vec<String> = locals.iter().map(|l| l.id.clone()).collect();
+    let mut known: HashMap<String, WsItem> = HashMap::new();
     for chunk in ids.chunks(100) {
-        out.extend(details(chunk)?.into_iter().filter_map(allowed).filter(|i| !hidden.hides(i)));
+        let Ok(found) = details(chunk) else { break };
+        known.extend(found.into_iter().filter_map(described).map(|i| (i.id.clone(), i)));
     }
-    Ok(out)
+    Ok(locals.into_iter().map(|l| known.remove(&l.id).unwrap_or_else(|| local_details(l))).filter(|i| !hidden.hides(i)).collect())
 }
 
 // ---------- importing ----------
@@ -598,8 +659,11 @@ mod tests {
         assert!(allowed(detail(&["Video", "Nature", "Anime", "Everyone"])).is_none());
         assert!(allowed(detail(&["Video", "Wallpaper", "1920 x 1080", "Everyone"])).is_none());
         assert!(allowed(detail(&["Video", "Nature", "Mature"])).is_none());
-        assert!(allowed(detail(&["Scene", "Nature", "Everyone"])).is_none());
+        assert!(allowed(detail(&["Application", "Nature", "Everyone"])).is_none());
         assert_eq!(allowed(detail(&["Web", "Technology", "Everyone"])).unwrap().kind, WsKind::Web);
+        assert_eq!(allowed(detail(&["Scene", "Technology", "Everyone"])).unwrap().kind, WsKind::Scene);
+        // What's already downloaded isn't held to the browsing filter.
+        assert_eq!(described(detail(&["Scene", "Anime", "Mature"])).unwrap().kind, WsKind::Scene);
         let mut d = detail(&["Video", "Nature", "Everyone"]);
         d.title = "Genshin Impact - Liyue Harbor".into();
         assert!(allowed(d).is_none());
@@ -641,7 +705,16 @@ mod tests {
         std::fs::write(tmp.join("2/scene.json"), b"{}").unwrap();
         let l = read_local(&tmp.join("1"), "1").unwrap();
         assert_eq!((l.src, l.title.as_str()), (tmp.join("1/rain.mp4"), "Rain"));
-        assert!(read_local(&tmp.join("2"), "2").is_none());
+        // Scenes keep their file inside scene.pkg, so it doesn't have to be there.
+        let l = read_local(&tmp.join("2"), "2").unwrap();
+        assert_eq!((l.src, l.kind), (tmp.join("2"), WsKind::Scene));
+        std::fs::remove_file(tmp.join("2/scene.json")).unwrap();
+        assert!(read_local(&tmp.join("2"), "2").is_some());
+        // Executables aren't wallpapers Backdrop will run.
+        std::fs::create_dir_all(tmp.join("3")).unwrap();
+        std::fs::write(tmp.join("3/project.json"), r#"{"title":"A","type":"application","file":"a.exe"}"#).unwrap();
+        std::fs::write(tmp.join("3/a.exe"), b"x").unwrap();
+        assert!(read_local(&tmp.join("3"), "3").is_none());
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }

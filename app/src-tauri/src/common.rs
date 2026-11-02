@@ -12,6 +12,8 @@ pub enum Kind {
     Image,
     /// A zip with an `index.html` (HTML/canvas/WebGL wallpaper).
     Web,
+    /// A Wallpaper Engine scene, unpacked into `scene/` (see scene.rs).
+    Scene,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,6 +42,9 @@ pub struct Item {
     /// Steam Workshop id, for wallpapers that came from the Wallpaper Engine workshop.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workshop: Option<String>,
+    /// Picture to make the thumbnail from when the wallpaper itself can't be decoded for one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
 }
 
 pub const VIDEO_EXTS: &[&str] = &["mp4", "m4v", "mov", "webm", "mkv"];
