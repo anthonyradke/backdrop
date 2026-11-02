@@ -620,6 +620,7 @@ WE.Scene = class {
     for (const l of this.layers) if (l.data.parent != null) l.parent = this.byId.get(l.data.parent) || null;
     this.buildOrder(objs);
     await this.setupBloom();
+    await WE.startScripts?.(this);
     if (!this.layers.some((l) => l.base || l.draws)) throw new Error("nothing in this scene could be drawn");
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     return this;
