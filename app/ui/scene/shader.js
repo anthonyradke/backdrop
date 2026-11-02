@@ -316,6 +316,11 @@ function compileWithFixes(gl, type, body, prefix) {
         }
         if (changed) continue;
       }
+      // A float used to index an array.
+      if (/integer expression required/.test(last)) {
+        const indexed = lines[n].replace(/\[(?!int\()([^\][]+)\]/g, "[int($1)]");
+        if (indexed !== lines[n]) { lines[n] = indexed; changed = true; continue; }
+      }
       let fixed = narrowAssignment(lines[n], types);
       if (fixed === lines[n]) fixed = moduloFloat(lines[n]);
       if (fixed === lines[n]) fixed = boolToFloat(lines[n]);
