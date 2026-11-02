@@ -36,6 +36,21 @@ const PRECISION = "precision highp float;\nprecision highp int;\nprecision highp
 // ES reserves these; desktop GL doesn't, and shaders use them as plain names.
 const RESERVED = /\b(input|output|half|fixed|filter|sample|common|partition|active|cast|namespace|using|class|union|enum|template|this|public|static|extern|external|interface|long|short|double|superp|sizeof|goto|inline|noinline|volatile|resource|atomic_uint|noperspective|patch|subroutine|coherent|restrict|readonly|writeonly|typedef|asm)\b/g;
 
+// The engine generates this one from the scene's lights. These are point lights with a soft edge.
+const LIGHTING = `uniform vec4 g_SceneLights[8];
+uniform vec4 g_SceneLightColors[8];
+uniform int g_SceneLightCount;
+vec3 PerformLighting_V1(vec3 worldPos, vec3 albedo, vec3 normal, vec3 viewDir, vec3 specularTint, vec3 baseReflectance, float roughness, float metallic) {
+	vec3 total = vec3(0.0);
+	for (int i = 0; i < g_SceneLightCount; i++) {
+		vec3 toLight = g_SceneLights[i].xyz - worldPos;
+		float dist = max(length(toLight), 0.001);
+		float fade = clamp(1.0 - dist / g_SceneLights[i].w, 0.0, 1.0);
+		total += albedo * g_SceneLightColors[i].rgb * max(dot(normal, toLight / dist), 0.0) * fade * fade;
+	}
+	return total;
+}`;
+
 function stripComments(src) {
   return src.replace(/\r\n?/g, "\n").replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " ")).replace(/\\\n/g, " ");
 }
@@ -77,7 +92,7 @@ async function expandIncludes(src, read, seen, out) {
     }
     const req = line.match(/^\s*#\s*require\s+(\w+)/);
     if (req) {
-      if (req[1] === "LightingV1") res.push("vec3 PerformLighting_V1(vec3 worldPos, vec3 albedo, vec3 normal, vec3 viewDir, vec3 specularTint, vec3 baseReflectance, float roughness, float metallic) { return vec3(0.0); }");
+      if (req[1] === "LightingV1") res.push(LIGHTING);
       continue;
     }
     res.push(line);

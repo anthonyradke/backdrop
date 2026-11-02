@@ -74,6 +74,23 @@ const initializers = {
     const dist = num(d.distance, 0);
     return (p) => { const r = randomDirection(); p.pos[0] += r[0] * dist; p.pos[1] += r[1] * dist; };
   },
+  colorlist(d) {
+    const list = (d.colors || []).map((c) => vec(c, [1, 1, 1]));
+    return (p) => { if (list.length) { p.color0 = list[Math.floor(Math.random() * list.length)].slice(); p.color = p.color0.slice(); } };
+  },
+  inheritcontrolpointvelocity(d, sys) {
+    const cp = num(d.controlpoint, 0), a = num(d.min, 1), b = num(d.max, a);
+    return (p) => { const v = sys.pointVelocity(cp), k = rnd(a, b); for (let i = 0; i < 3; i++) p.vel[i] += v[i] * k; };
+  },
+  // A child particle starting out with what the parent particle has.
+  inheritinitialvaluefromevent() {
+    return (p) => {
+      const o = p.eventParent;
+      if (!o) return;
+      p.color0 = o.color.slice(); p.color = o.color.slice();
+      p.alpha0 = o.alpha; p.alpha = o.alpha;
+    };
+  },
   // Scales a starting value by how far from a control point the particle begins.
   remapinitialvalue(d, sys) {
     const cp = num(d.inputcontrolpoint0, 0), lo = num(d.inputrangemin, 0), hi = num(d.inputrangemax, 1);
@@ -198,6 +215,57 @@ const operators = {
       p.vel[0] += dx * k; p.vel[1] += dy * k; p.vel[2] += dz * k;
     };
   },
+  inheritvaluefromevent() {
+    return (p) => {
+      const o = p.eventParent;
+      if (!o) return;
+      p.alpha *= o.alpha;
+      for (let i = 0; i < 3; i++) p.color[i] *= o.color[i];
+    };
+  },
+  collisionplane(d) {
+    const n = vec(d.plane, [0, 1, 0]), l = Math.hypot(...n) || 1, nx = n[0] / l, ny = n[1] / l, nz = n[2] / l, dist = num(d.distance, 0), bounce = num(d.bouncefactor, 0.5);
+    return (p) => {
+      const side = p.pos[0] * nx + p.pos[1] * ny + p.pos[2] * nz - dist;
+      if (side >= 0) return;
+      p.pos[0] -= nx * side; p.pos[1] -= ny * side; p.pos[2] -= nz * side;
+      const v = p.vel[0] * nx + p.vel[1] * ny + p.vel[2] * nz;
+      if (v < 0) { p.vel[0] -= (1 + bounce) * v * nx; p.vel[1] -= (1 + bounce) * v * ny; p.vel[2] -= (1 + bounce) * v * nz; }
+    };
+  },
+  // The picture's edges.
+  collisionbounds(d, sys) {
+    const bounce = num(d.bouncefactor, 0.5);
+    return (p) => {
+      const s = sys.layer.scene, w = sys.layer.world();
+      const lo = [-w.origin[0] / w.scale[0], -w.origin[1] / w.scale[1]], hi = [(s.width - w.origin[0]) / w.scale[0], (s.height - w.origin[1]) / w.scale[1]];
+      for (let i = 0; i < 2; i++) {
+        const a = Math.min(lo[i], hi[i]), b = Math.max(lo[i], hi[i]);
+        if (p.pos[i] < a) { p.pos[i] = a; p.vel[i] = Math.abs(p.vel[i]) * bounce; } else if (p.pos[i] > b) { p.pos[i] = b; p.vel[i] = -Math.abs(p.vel[i]) * bounce; }
+      }
+    };
+  },
+  collisionsphere(d) {
+    const o = vec(d.origin), radius = num(d.radius, 100), bounce = num(d.bouncefactor, d.collisionbehavior === "slide" ? 0 : 0.5);
+    return (p) => {
+      const dx = p.pos[0] - o[0], dy = p.pos[1] - o[1], dz = p.pos[2] - o[2], r = Math.hypot(dx, dy, dz);
+      if (!r || r >= radius) return;
+      const nx = dx / r, ny = dy / r, nz = dz / r;
+      p.pos[0] = o[0] + nx * radius; p.pos[1] = o[1] + ny * radius; p.pos[2] = o[2] + nz * radius;
+      const v = p.vel[0] * nx + p.vel[1] * ny + p.vel[2] * nz;
+      if (v < 0) { p.vel[0] -= (1 + bounce) * v * nx; p.vel[1] -= (1 + bounce) * v * ny; p.vel[2] -= (1 + bounce) * v * nz; }
+    };
+  },
+  // A rectangle in space; the particles' plane of travel treats it like its plane.
+  collisionquad(d) {
+    const size = vec(d.size, [100, 100, 0]), o = vec(d.origin), bounce = num(d.bouncefactor, 0.5);
+    return (p) => {
+      if (Math.abs(p.pos[0] - o[0]) > size[0] || p.pos[1] >= o[1] || p.vel[1] >= 0) return;
+      p.pos[1] = o[1]; p.vel[1] = -p.vel[1] * bounce;
+    };
+  },
+  // Colliding with a 3D model needs its triangles; particles pass through instead of vanishing.
+  collisionmodel() { return () => {}; },
   remapvalue(d, sys) {
     const scale = num(d.transforminputscale, 1), fn = d.transformfunction || "none", operation = d.operation || "multiply", fade = fader(d);
     const lo = vec(d.outputrangemin), hi = d.outputrangemax === undefined ? [1, 1, 1] : vec(d.outputrangemax);
@@ -367,6 +435,14 @@ class System {
     };
   }
 
+  // How fast a control point moves, which only a cursor-following one does.
+  pointVelocity(id) {
+    const now = this.point(id), last = (this.lastPoints ||= {})[id] || now;
+    this.lastPoints[id] = now;
+    const dt = this.layer.scene.dt || 1 / 30;
+    return [(now[0] - last[0]) / dt, (now[1] - last[1]) / dt, (now[2] - last[2]) / dt];
+  }
+
   // Control points: 0 is the system itself, and a flagged one follows the cursor.
   point(id) {
     const c = this.controls.find((x) => x.id === id);
@@ -392,6 +468,7 @@ class System {
     if (inst.live.length >= this.maxEach) return;
     const p = (this.pool.pop() || new Particle()).reset();
     em?.make(p);
+    p.eventParent = inst.parent;
     for (const f of this.inits) f(p);
     p.lifetime *= this.lifeK;
     p.size0 *= this.sizeK; p.size = p.size0;
@@ -582,6 +659,8 @@ WE.ParticleLayer = class extends WE.LayerBase {
     this.over = d.instanceoverride || {};
     const def = await s.assets.json(d.particle);
     if (!def) throw new Error(`particle ${d.particle} not found`);
+    // The system file's flags: bit 2 places it in the 3D camera.
+    if ((num(def.flags, 0) & 4) !== 0) this.perspective = true;
     this.parts = [];
     this.root = await this.addSystem(def, this.over, 1, "static");
     // A saved start time means the scene opens as if it had been running that long.
@@ -627,13 +706,15 @@ WE.ParticleLayer = class extends WE.LayerBase {
     const s = this.scene, gl = s.gl, M = WE.M;
     this.root.step(Math.min(0.1, s.dt));
     const w = this.world();
-    let m = M.mul(s.projection, M.translate(w.origin[0] - s.width / 2, s.height / 2 - w.origin[1], 0));
+    let m = M.translate(w.origin[0] - s.width / 2, s.height / 2 - w.origin[1], w.origin[2] || 0);
     if (w.angle) m = M.mul(m, M.rotateZ(-w.angle));
-    m = M.mul(m, [w.scale[0], 0, 0, 0, 0, -w.scale[1], 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+    if (this.perspective) m = M.mul(m, M.mul(M.rotateY(this.angles[1] || 0), M.rotateX(-(this.angles[0] || 0))));
+    m = M.mul(m, M.scale(w.scale[0], -w.scale[1], w.scale[2] || 1));
     if (s.parallaxOn) {
       const dx = (this.parallaxDepth[0] + s.parallaxAmount) * s.parallax[0] * s.width, dy = (this.parallaxDepth[1] + s.parallaxAmount) * s.parallax[1] * s.width;
-      m = M.mul(M.mul(s.projection, M.translate(dx, dy)), M.mul(M.invert(s.projection), m));
+      m = M.mul(M.translate(dx, dy), m);
     }
+    m = M.mul(this.camera(), m);
     gl.colorMask(true, true, true, false);
     for (const part of this.parts) {
       if (!part.sys.count) continue;

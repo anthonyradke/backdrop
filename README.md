@@ -18,7 +18,8 @@ The Windows build is about 5 MB installed, from a 2 MB installer.
 
 - Video (MP4, WebM, MOV), animated GIF and HTML/canvas/WebGL wallpapers rendered behind the desktop icons
 - Wallpaper Engine scene wallpapers (`scene.pkg`): image layers, shader effects, puppets, particles, text,
-  sound, audio visualizers, cursor effects and SceneScript, rendered with WebGL2
+  sound, audio visualizers, album art and song info, cursor effects, clicks and SceneScript, rendered with
+  WebGL2
 - Still images (JPG, PNG, WebP and others) set through the native wallpaper API
 - A separate wallpaper per display, the same one on every display, or one wallpaper spanned across all of
   them as a single picture
@@ -188,11 +189,9 @@ cargo test --workspace
 - HTML wallpapers cannot be paused externally. The player posts `{ backdrop: { paused, muted, volume, speed } }`
   to the page; pages that listen for this message can stop their own animation loop.
 - Codec detection reads MP4 and MOV headers only; other formats show no codec.
-- Scene wallpapers run at 30 fps and need Wallpaper Engine installed for its stock assets. Not supported: 3D
-  scenes with a perspective camera, models and scene lighting; application wallpapers, which would mean running
-  downloaded programs; clicks, since wallpapers sit behind the icons; song title and album art. In SceneScript,
-  timelines started from a script don't play. The `boids`, `remapvalue` and `maintaindistance` particle operators
-  are skipped.
+- Scene wallpapers run at 30 fps and need Wallpaper Engine installed for its stock assets. 3D models aren't drawn;
+  lights are simple point lights; layers a script creates at run time aren't drawn. Application wallpapers aren't
+  supported, because they would mean running downloaded programs.
 - Workshop downloads need Steam and a copy of Wallpaper Engine, which has to stay installed (it doesn't have
   to run). The anime filter relies on how uploaders tag and title their items, so some still get through.
 

@@ -41,16 +41,40 @@ class Assets {
   async json(path) {
     const t = await this.text(path);
     if (t == null) return null;
-    try { return JSON.parse(t); } catch { return null; }
+    try { return JSON.parse(t); } catch {}
+    // Hand-edited files have comments and trailing commas, which the engine reads anyway.
+    try { return JSON.parse(looseJson(t)); } catch { return null; }
   }
   url(root, path) { return root + path.split("/").map(encodeURIComponent).join("/"); }
+}
+
+function looseJson(t) {
+  let out = "", i = 0;
+  while (i < t.length) {
+    const c = t[i];
+    if (c === '"') {
+      const start = i++;
+      while (i < t.length && t[i] !== '"') i += t[i] === "\\" ? 2 : 1;
+      out += t.slice(start, ++i);
+    } else if (c === "/" && t[i + 1] === "/") {
+      while (i < t.length && t[i] !== "\n") i++;
+    } else if (c === "/" && t[i + 1] === "*") {
+      i = t.indexOf("*/", i + 2);
+      i = i < 0 ? t.length : i + 2;
+    } else { out += c; i++; }
+  }
+  return out.replace(/,(\s*[}\]])/g, "$1");
 }
 
 // ---------- math ----------
 
 const M = {
   identity: () => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
-  ortho: (l, r, b, t) => [2 / (r - l), 0, 0, 0, 0, 2 / (t - b), 0, 0, 0, 0, -1, 0, -(r + l) / (r - l), -(t + b) / (t - b), 0, 1],
+  // Depth runs far enough that nothing in a 2D scene is ever clipped for being in front or behind.
+  ortho: (l, r, b, t) => [2 / (r - l), 0, 0, 0, 0, 2 / (t - b), 0, 0, 0, 0, -1e-5, 0, -(r + l) / (r - l), -(t + b) / (t - b), 0, 1],
+  scale: (x, y, z) => [x, 0, 0, 0, 0, y, 0, 0, 0, 0, z, 0, 0, 0, 0, 1],
+  rotateX(a) { const c = Math.cos(a), s = Math.sin(a); return [1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1]; },
+  rotateY(a) { const c = Math.cos(a), s = Math.sin(a); return [c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1]; },
   mul(a, b) {
     const o = new Array(16);
     for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
@@ -277,6 +301,7 @@ function sharedUniforms(scene) {
     g_EffectTextureProjectionMatrix: scene.identity,
     g_EffectTextureProjectionMatrixInverse: scene.identity,
     g_TextureReductionScale: 1,
+    g_SceneLights: scene.lightSpots, g_SceneLightColors: scene.lightColors, g_SceneLightCount: scene.lights.length,
     g_AudioSpectrum16Left: scene.audio16L, g_AudioSpectrum16Right: scene.audio16R,
     g_AudioSpectrum32Left: scene.audio32L, g_AudioSpectrum32Right: scene.audio32R,
     g_AudioSpectrum64Left: scene.audio64L, g_AudioSpectrum64Right: scene.audio64R,
@@ -292,6 +317,8 @@ function applyBlend(gl, mode) {
 }
 
 class Layer {
+  // The view this layer is seen through: flat, or the 3D camera for layers placed in space.
+  camera() { return this.perspective ? this.scene.perspectiveCamera : this.scene.projection; }
   constructor(scene, data) {
     this.scene = scene;
     this.data = data;
@@ -310,6 +337,7 @@ class Layer {
     this.size = WE.parseVec(scene.value(data.size) ?? [0, 0]);
     this.alignment = data.alignment || "center";
     this.blendMode = +(scene.value(data.colorBlendMode) ?? 0);
+    this.perspective = scene.spatial || !!scene.value(data.perspective);
   }
   // Applies the parent chain the way the engine does: rotation and scale carry into the children.
   world() {
@@ -346,7 +374,8 @@ class Pass {
 class ImageLayer extends Layer {
   async init() {
     const s = this.scene, d = this.data;
-    this.model = d.image ? await s.assets.json(d.image) : {};
+    // A shape is a quad that exists to carry effects, drawn over what's already there.
+    this.model = d.image ? await s.assets.json(d.image) : d.shape ? { material: "materials/util/composelayer.json", passthrough: true } : {};
     if (!this.model) throw new Error(`model ${d.image} not found`);
     const material = await this.material();
     if (!material) throw new Error(`no material for ${this.name}`);
@@ -449,9 +478,13 @@ class ImageLayer extends Layer {
   }
   screenMatrix(w, r) {
     const s = this.scene;
-    let m = s.projection;
-    if (w.angle) {
-      const cx = (r.x0 + r.x1) / 2, cy = (r.y0 + r.y1) / 2;
+    const cx = (r.x0 + r.x1) / 2, cy = (r.y0 + r.y1) / 2;
+    let m = this.camera();
+    if (this.perspective) {
+      // Standing in space: pivot on the layer's middle, at its depth, around all three axes.
+      const pivot = M.mul(M.translate(cx, cy, w.origin[2] || 0), M.mul(M.rotateZ(-w.angle), M.mul(M.rotateY(this.angles[1] || 0), M.rotateX(-(this.angles[0] || 0)))));
+      m = M.mul(m, M.mul(pivot, M.translate(-cx, -cy)));
+    } else if (w.angle) {
       m = M.mul(m, M.mul(M.translate(cx, cy), M.mul(M.rotateZ(-w.angle), M.translate(-cx, -cy))));
     }
     if (s.parallaxOn) {
@@ -526,6 +559,11 @@ class GroupLayer extends Layer {
   async init() {}
 }
 
+// A light adds nothing of its own to the picture; lit layers read it from the scene's list.
+class LightLayer extends Layer {
+  async init() { this.scene.lights.push(this); }
+}
+
 WE.LayerBase = Layer;
 WE.ImageLayerBase = ImageLayer;
 
@@ -541,6 +579,8 @@ WE.Scene = class {
     this.warnOnce = (m) => { if (!warned.has(m)) { warned.add(m); this.warn(m); } };
     this.assets = new Assets(opts.base, opts.stock);
     this.layers = [];
+    this.lightSpots = new Float32Array(32);
+    this.lightColors = new Float32Array(32);
     this.byId = new Map();
     this.order = [];
     this.targets = new Map();
@@ -555,6 +595,7 @@ WE.Scene = class {
     this.parallax = [0, 0];
     for (const n of [16, 32, 64]) for (const c of ["L", "R"]) this[`audio${n}${c}`] = new Float32Array(n);
     this.timelines = [];
+    this.lights = [];
     this.paused = false;
     this.running = false;
     this.fps = 30;
@@ -580,6 +621,8 @@ WE.Scene = class {
     const g = data.general || {};
     this.general = g;
     const proj = g.orthogonalprojection;
+    // No orthogonal size at all means the scene was built for the 3D camera.
+    this.spatial = proj === null || proj === undefined;
     if (proj && !proj.auto && proj.width) { this.width = proj.width; this.height = proj.height; }
     else {
       // Auto projection: the extent of the images. 3D scenes with a perspective camera land here too.
@@ -608,7 +651,13 @@ WE.Scene = class {
     this.parallaxAmount = +(this.value(g.cameraparallaxamount) ?? 0);
     this.parallaxDelay = +(this.value(g.cameraparallaxdelay) ?? 0.1);
     this.parallaxInfluence = +(this.value(g.cameraparallaxmouseinfluence) ?? 0.5);
-    this.projection = M.ortho(-this.width / 2, this.width / 2, -this.height / 2, this.height / 2);
+    const zoom = +(this.value(g.zoom) ?? 1) || 1;
+    this.projection = M.ortho(-this.width / 2 / zoom, this.width / 2 / zoom, -this.height / 2 / zoom, this.height / 2 / zoom);
+    // The camera that frames the scene exactly at depth 0, from 1000 units back. Rows run downwards
+    // here too, so y keeps its sign.
+    const f = 2000 / this.height * zoom, near = +(this.value(g.nearz) ?? 0.01) || 0.01, far = +(this.value(g.farz) ?? 10000) || 10000;
+    const za = (far + near) / (near - far), zb = (2 * far * near) / (near - far);
+    this.perspectiveCamera = [f * this.height / this.width, 0, 0, 0, 0, f, 0, 0, 0, 0, za, -1, 0, 0, zb - za * 1000, 1000];
 
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.CULL_FACE);
@@ -636,6 +685,14 @@ WE.Scene = class {
     made.forEach((l, i) => { if (l) { this.layers.push(l); this.byId.set(objs[i].id, l); } });
     for (const l of this.layers) if (l.data.parent != null) l.parent = this.byId.get(l.data.parent) || null;
     this.buildOrder(objs);
+    this.lightSpots = new Float32Array(32);
+    this.lightColors = new Float32Array(32);
+    this.lights.slice(0, 8).forEach((l, i) => {
+      const w = l.world(), k = +(this.value(l.data.intensity) ?? 1), radius = +(this.value(l.data.radius) ?? 500);
+      this.lightSpots.set([w.origin[0] - this.width / 2, this.height / 2 - w.origin[1], w.origin[2] || 0, radius], i * 4);
+      this.lightColors.set([l.color[0] * k, l.color[1] * k, l.color[2] * k, 1], i * 4);
+    });
+    this.lights.length = Math.min(8, this.lights.length);
     await this.setupBloom();
     await WE.startScripts?.(this);
     this.wantsMedia = [...this.textures.keys()].some((n) => n.startsWith("$media")) || (this.scripts || []).some((s) => /\bmedia\w*Changed\b/.test(s.source));
@@ -661,10 +718,11 @@ WE.Scene = class {
   async makeLayer(o) {
     try {
       let layer;
-      if (o.image) layer = new ImageLayer(this, o);
+      if (o.image || (o.shape && o.effects?.length)) layer = new ImageLayer(this, o);
       else if (o.text && WE.TextLayer) layer = new WE.TextLayer(this, o);
       else if (o.particle && WE.ParticleLayer) layer = new WE.ParticleLayer(this, o);
       else if (o.sound && WE.SoundLayer) layer = new WE.SoundLayer(this, o);
+      else if (o.light) layer = new LightLayer(this, o);
       else layer = new GroupLayer(this, o);
       await layer.init();
       return layer;
@@ -898,7 +956,7 @@ WE.Scene = class {
     if (input) slots[0] = input;
     if (p.binds) {
       for (const [i, name] of Object.entries(p.binds)) {
-        if (name === "previous") slots[i] = previous || input;
+        if (name === "previous" || name === "prev") slots[i] = previous || input;
         else slots[i] = { rt: name };
       }
     }
@@ -940,9 +998,11 @@ WE.Scene = class {
     set("g_ModelViewProjectionMatrix", o.mvp);
     set("g_EffectModelViewProjectionMatrix", o.mvp);
     if (u.g_ModelViewProjectionMatrixInverse) set("g_ModelViewProjectionMatrixInverse", M.invert(o.mvp));
-    set("g_ModelMatrix", l.ortho || this.identity);
+    // The final draw's positions are already in scene space, so all of its transform is the view.
+    const toScene = dest === this.sceneTarget;
+    set("g_ModelMatrix", toScene ? this.identity : l.ortho || this.identity);
     set("g_EffectModelMatrix", l.ortho || this.identity);
-    set("g_ViewProjectionMatrix", this.identity);
+    set("g_ViewProjectionMatrix", toScene ? o.mvp : this.identity);
     set("g_Brightness", l.brightness[0]);
     set("g_UserAlpha", l.alpha[0]);
     set("g_Alpha", l.alpha[0]);

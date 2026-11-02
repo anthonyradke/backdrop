@@ -23,7 +23,17 @@ function scriptRuntime() {
   self.console = console;
 
   const modules = {};
-  const engine = {
+  // The script API keeps growing. A method this doesn't know does nothing, rather than throwing and
+  // taking the rest of the script down with it.
+  function tolerant(target) {
+    return new Proxy(target, {
+      get(t, k, r) {
+        if (k in t || typeof k !== "string") return Reflect.get(t, k, r);
+        return /^(get|set|is|has|sort|insert|remove|create|destroy|update|apply|enable|disable|show|hide)[A-Z]/.test(k) ? () => undefined : undefined;
+      },
+    });
+  }
+  const engine = tolerant({
     frametime: 0, runtime: 0, timeOfDay: 0, userProperties: {},
     canvasSize: null, screenResolution: null,
     isDesktopDevice: () => true, isMobileDevice: () => false, isTabletDevice: () => false,
@@ -40,7 +50,7 @@ function scriptRuntime() {
     setTimeout: (f, t) => setTimeout(f, t), clearTimeout: (t) => clearTimeout(t),
     setInterval: (f, t) => setInterval(f, t), clearInterval: (t) => clearInterval(t),
     openUserShortcut() {},
-  };
+  });
   const input = { cursorWorldPosition: null, cursorScreenPosition: null, cursorLeftDown: false };
   const ops = [];
   const timelines = new Map();
@@ -83,7 +93,7 @@ function scriptRuntime() {
     if (l.proxy) return l.proxy;
     const out = (k, v) => { writes.push([id, k, v]); };
     const list = (v) => (v && typeof v === "object" ? [v.x ?? v[0] ?? 0, v.y ?? v[1] ?? 0, v.z ?? v[2] ?? 0] : [+v || 0]);
-    const p = {
+    const p = tolerant({
       name: l.name, id,
       get origin() { return vec3(l.origin); },
       set origin(v) { l.origin = list(v); out("origin", l.origin); },
@@ -116,24 +126,25 @@ function scriptRuntime() {
       },
       getBoneCount: () => 0, getBoneTransform: () => null, setBoneTransform() {},
       play() {}, stop() {}, pause() {}, isPlaying: () => false,
-    };
+    });
     l.proxy = p;
     return p;
   }
   const nullLayer = new Proxy({}, { get: (_, k) => (k === "origin" || k === "scale" || k === "angles" || k === "color" ? vec3([0, 0, 0]) : k === "getTextureAnimation" || k === "getAnimation" ? () => timeline(null) : undefined), set: () => true });
 
-  const scene = {
+  const scene = tolerant({
     getLayer: (name) => (named.has(name) ? layerProxy(named.get(name)) : null),
     getLayerByID: (id) => (layers.has(id) ? layerProxy(id) : null),
     enumerateLayers: () => [...layers.keys()].map(layerProxy),
     getLayerCount: () => layers.size,
-    createLayer: () => null, destroyLayer() {},
+    // Layers made at run time aren't drawn, but scripts can hold on to one without tripping.
+    createLayer: () => nullLayer, destroyLayer() {},
     getCameraTransforms: () => ({ eye: vec3([0, 0, 0]), center: vec3([0, 0, -1]), up: vec3([0, 1, 0]) }),
     setCameraTransforms() {},
     getInitialLayerConfig: () => ({}),
     get clearColor() { return vec3([0, 0, 0]); },
     set clearColor(v) {},
-  };
+  });
 
   // Script properties in code are overridden by what the wallpaper's author saved for them.
   function propertiesBuilder(saved) {
@@ -321,6 +332,16 @@ async function startScripts(scene) {
   const classes = await stock.text("scripts/jsclasses/baseclasses.js");
   if (!classes) { scene.warn("no script runtime in Wallpaper Engine's assets"); return; }
   const modules = {};
+  // The script API keeps growing. A method this doesn't know does nothing, rather than throwing and
+  // taking the rest of the script down with it.
+  function tolerant(target) {
+    return new Proxy(target, {
+      get(t, k, r) {
+        if (k in t || typeof k !== "string") return Reflect.get(t, k, r);
+        return /^(get|set|is|has|sort|insert|remove|create|destroy|update|apply|enable|disable|show|hide)[A-Z]/.test(k) ? () => undefined : undefined;
+      },
+    });
+  }
   for (const m of ["wemath", "wevector", "wecolor"]) {
     const t = await stock.text(`scripts/jsmodules/${m}.js`);
     if (t) modules[m] = t;
