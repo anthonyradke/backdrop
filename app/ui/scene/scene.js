@@ -730,6 +730,25 @@ WE.Scene = class {
     return this;
   }
 
+  // A layer a script makes while the scene runs. It goes on top; until it has loaded it isn't drawn.
+  async addLayer(o) {
+    const layer = await this.makeLayer(o);
+    if (!layer || this.removed?.has(o.id)) return;
+    if (o.parent != null) layer.parent = this.byId.get(o.parent) || null;
+    this.layers.push(layer);
+    this.byId.set(o.id, layer);
+    this.order.push(layer);
+  }
+
+  removeLayer(id) {
+    (this.removed ||= new Set()).add(id);
+    const l = this.byId.get(id);
+    if (!l) return;
+    this.byId.delete(id);
+    this.layers = this.layers.filter((x) => x !== l);
+    this.order = this.order.filter((x) => x !== l);
+  }
+
   buildOrder(objs) {
     const seen = new Set();
     const add = (o) => {

@@ -53,6 +53,7 @@ function scriptRuntime() {
   });
   const input = { cursorWorldPosition: null, cursorScreenPosition: null, cursorLeftDown: false };
   const ops = [];
+  let nextId = -1000;
   const timelines = new Map();
   // A keyframed property. It runs in the renderer; this mirrors enough state to answer questions.
   function timeline(info) {
@@ -137,8 +138,27 @@ function scriptRuntime() {
     getLayerByID: (id) => (layers.has(id) ? layerProxy(id) : null),
     enumerateLayers: () => [...layers.keys()].map(layerProxy),
     getLayerCount: () => layers.size,
-    // Layers made at run time aren't drawn, but scripts can hold on to one without tripping.
-    createLayer: () => nullLayer, destroyLayer() {},
+    // New layers are made by the renderer a moment later; until then they answer from their config.
+    createLayer(config) {
+      const c = typeof config === "string" ? { image: config } : { ...(config || {}) };
+      const id = nextId--;
+      const wire = {};
+      for (const [k, v] of Object.entries(c)) wire[k] = v && typeof v === "object" && "x" in v ? ["x", "y", "z", "w"].filter((a) => a in v).map((a) => v[a]).join(" ") : v;
+      const nums = (v, d) => (v == null ? d : String(v).trim().split(/\s+/).map(Number));
+      layers.set(id, {
+        id, name: c.name || "", parent: null, origin: nums(wire.origin, [0, 0, 0]), scale: nums(wire.scale, [1, 1, 1]), angles: nums(wire.angles, [0, 0, 0]),
+        color: nums(wire.color, [1, 1, 1]), alpha: +(wire.alpha ?? 1), brightness: 1, visible: wire.visible !== false, size: nums(wire.size, [0, 0]), text: "", pointsize: 0, frames: 1, effects: [], timelines: [],
+      });
+      if (c.name && !named.has(c.name)) named.set(c.name, id);
+      ops.push(["create", id, wire]);
+      return layerProxy(id);
+    },
+    destroyLayer(layer) {
+      const id = typeof layer === "object" ? layer?.id : layer;
+      if (!layers.has(id)) return;
+      layers.delete(id);
+      ops.push(["destroy", id]);
+    },
     getCameraTransforms: () => ({ eye: vec3([0, 0, 0]), center: vec3([0, 0, -1]), up: vec3([0, 1, 0]) }),
     setCameraTransforms() {},
     getInitialLayerConfig: () => ({}),
@@ -381,6 +401,8 @@ async function startScripts(scene) {
     }
     for (const [op, id, a, b] of m.ops) {
       if (op === "frame") { const l = scene.byId.get(id); if (l) l.heldFrame = a; continue; }
+      if (op === "create") { scene.addLayer({ ...a, id }); continue; }
+      if (op === "destroy") { scene.removeLayer(id); continue; }
       if (op === "effect") {
         const fx = scene.byId.get(id)?.effects?.find((e) => e.name === a);
         if (fx) fx.visible[0] = b;

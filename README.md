@@ -189,8 +189,8 @@ cargo test --workspace
 - HTML wallpapers cannot be paused externally. The player posts `{ backdrop: { paused, muted, volume, speed } }`
   to the page; pages that listen for this message can stop their own animation loop.
 - Codec detection reads MP4 and MOV headers only; other formats show no codec.
-- Scene wallpapers run at 30 fps and need Wallpaper Engine installed for its stock assets. 3D models are drawn
-  without animation, lights are simple point lights, and layers a script creates at run time aren't drawn. Application wallpapers aren't
+- Scene wallpapers run at 30 fps and need Wallpaper Engine installed for its stock assets. Lights are simple point
+  lights. Application wallpapers aren't
   supported, because they would mean running downloaded programs.
 - Workshop downloads need Steam and a copy of Wallpaper Engine, which has to stay installed (it doesn't have
   to run). The anime filter relies on how uploaders tag and title their items, so some still get through.

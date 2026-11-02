@@ -223,6 +223,8 @@ class Puppet {
     for (let i = 0; i < uv.length; i += 2) { uv[i] /= uvScale[0]; uv[i + 1] /= uvScale[1]; }
     attr(0, mesh.pos, 3);
     attr(1, uv, 2);
+    if (mesh.hasNormals) attr(WE.ATTRIB.a_Normal, mesh.normal, 3);
+    if (mesh.hasTangents) attr(WE.ATTRIB.a_Tangent4, mesh.tangent, 4);
     if (bones.length) {
       attr(WE.ATTRIB.a_BlendIndices, mesh.joints, 4, true);
       attr(WE.ATTRIB.a_BlendWeights, mesh.weights, 4);
@@ -348,6 +350,13 @@ WE.ModelLayer = class extends WE.LayerBase {
     const mat = await s.assets.json(material);
     if (!mat) throw new Error(`material ${material} not found`);
     this.draws = true;
+    // A model with a skeleton animates the way a puppet does.
+    if (mesh.skin) {
+      try {
+        const bones = parseSkeleton(r, mesh.alt), anims = parseAnimations(r, mesh.alt);
+        if (bones.length) this.puppet = new Puppet(s, mesh, bones, anims, d.animationlayers, [1, 1]);
+      } catch (e) { s.warn(`model ${path}: ${e.message}`); }
+    }
     this.count = mesh.indices.length;
     this.vao = gl.createVertexArray();
     gl.bindVertexArray(this.vao);
@@ -369,7 +378,8 @@ WE.ModelLayer = class extends WE.LayerBase {
     this.depth = pass.depthtest !== "disabled";
     this.blending = pass.blending || "normal";
     const tex = pass.textures?.[0] ? await s.texture(pass.textures[0]) : s.white;
-    this.pass = await s.makePass(this, pass, null, null, null, tex);
+    const skin = this.puppet ? { combos: { SKINNING: 1, BONECOUNT: this.puppet.bones.length } } : null;
+    this.pass = await s.makePass(this, pass, skin, null, null, tex);
     this.tex = tex;
     s.needsDepth = true;
   }
@@ -384,7 +394,7 @@ WE.ModelLayer = class extends WE.LayerBase {
     gl.colorMask(true, true, true, false);
     s.drawPass(this.pass, s.sceneTarget, this.tex, null, {
       mvp, blend: this.blending, layer: this,
-      geometry: { draw: () => { gl.bindVertexArray(this.vao); gl.drawElements(gl.TRIANGLES, this.count, gl.UNSIGNED_SHORT, 0); gl.bindVertexArray(s.quadVao); } },
+      geometry: this.puppet ? { draw: () => this.puppet.draw(s, this.pass) } : { draw: () => { gl.bindVertexArray(this.vao); gl.drawElements(gl.TRIANGLES, this.count, gl.UNSIGNED_SHORT, 0); gl.bindVertexArray(s.quadVao); } },
       set: (set) => {
         set("g_ModelMatrix", model);
         set("g_ViewProjectionMatrix", view);
