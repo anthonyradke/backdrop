@@ -102,7 +102,7 @@ function fader(d) {
 
 const operators = {
   movement(d) {
-    const g = vec(d.gravity), drag = num(d.drag, 0);
+    const gr = vec(d.gravity), f = vec(d.force), g = [gr[0] + f[0], gr[1] + f[1], gr[2] + f[2]], drag = num(d.drag, 0);
     return (p, dt) => {
       p.vel[0] += g[0] * dt; p.vel[1] += g[1] * dt; p.vel[2] += g[2] * dt;
       if (drag) { const k = Math.max(0, 1 - drag * dt); p.vel[0] *= k; p.vel[1] *= k; p.vel[2] *= k; }
@@ -212,17 +212,33 @@ class Particle {
 
 const FLOATS = 17; // per vertex: position 3, uv+rotation+size 4, color 4, rotation 2, velocity+life 4
 
+// One running set of particles. A top-level system has a single instance; a child system has one
+// per parent particle that triggered it, placed at that particle.
+class Instance {
+  constructor(sys) {
+    this.sys = sys;
+    this.live = [];
+    this.emitters = sys.emitters.map((e) => ({ ...e, acc: 0, age: 0, spent: false }));
+    this.parent = null; // the particle this one follows
+    this.at = [0, 0, 0];
+    this.dead = false;
+  }
+  reuse() { this.dead = false; this.parent = null; for (const e of this.emitters) { e.acc = 0; e.age = 0; e.spent = false; } }
+}
+
 class System {
-  constructor(layer, def, over, mult) {
+  constructor(layer, def, over, instances) {
     this.layer = layer;
     this.def = def;
     this.over = over || {};
     this.time = 0;
-    this.live = [];
+    this.instances = [];
+    this.maxInstances = instances;
     this.pool = [];
     this.children = [];
     const o = this.over;
-    this.max = Math.min(50000, Math.ceil(num(def.maxcount, 100) * num(o.count, 1) * (mult ?? 1)));
+    this.maxEach = Math.max(1, Math.min(50000, Math.ceil(num(def.maxcount, 100) * num(o.count, 1))));
+    this.max = Math.min(60000, this.maxEach * instances);
     this.rateK = num(o.rate, 1);
     this.lifeK = num(o.lifetime, 1);
     this.sizeK = num(o.size, 1);
@@ -230,7 +246,7 @@ class System {
     this.alphaK = num(o.alpha, 1);
     this.tint = o.colorn !== undefined ? vec(o.colorn, [1, 1, 1]) : o.color !== undefined ? vec(o.color, [1, 1, 1]) : null;
     this.controls = (def.controlpoint || []).map((c) => ({ id: c.id ?? 0, offset: vec(c.offset), follow: !!((c.flags ?? 0) & 1) }));
-    this.emitters = (def.emitter || []).map((e) => ({ d: e, acc: 0, age: 0, spent: false, rate: num(e.rate, 5), make: this.emitterShape(e), delay: num(e.delay, 0), duration: num(e.duration, 0) }));
+    this.emitters = (def.emitter || []).map((e) => ({ d: e, rate: num(e.rate, 5), make: this.emitterShape(e), delay: num(e.delay, 0), duration: num(e.duration, 0) }));
     const build = (table, list, kind) => (list || []).flatMap((d) => {
       const f = table[d.name];
       if (!f) { layer.scene.warnOnce(`particle ${kind} ${d.name} isn't supported`); return []; }
@@ -246,24 +262,23 @@ class System {
     const origin = vec(e.origin), dirs = vec(e.directions, [1, 1, 1]);
     const spd0 = num(e.speedmin, 0), spd1 = num(e.speedmax, spd0);
     const sign = vec(e.sign);
-    const clampSign = (v, i) => (sign[i] > 0 ? Math.abs(v) : sign[i] < 0 ? -Math.abs(v) : v);
+    const signed = (v, i) => (sign[i] > 0 ? Math.abs(v) : sign[i] < 0 ? -Math.abs(v) : v);
+    const launch = (p) => {
+      const l = Math.hypot(...p.pos) || 1, sp = spd1 ? rnd(spd0, spd1) : 0;
+      for (let i = 0; i < 3; i++) { p.vel[i] += (p.pos[i] / l) * sp; p.pos[i] += origin[i]; }
+    };
     if (e.name === "boxrandom") {
       const lo = vec(e.distancemin), hi = vec(e.distancemax, [100, 100, 0]);
       return (p) => {
-        for (let i = 0; i < 3; i++) {
-          const m = rnd(lo[i], hi[i]) * (Math.random() < 0.5 ? -1 : 1);
-          p.pos[i] = origin[i] + clampSign(m, i) * dirs[i];
-        }
+        for (let i = 0; i < 3; i++) p.pos[i] = signed(rnd(lo[i], hi[i]) * (Math.random() < 0.5 ? -1 : 1), i) * dirs[i];
+        launch(p);
       };
     }
     const lo = num(e.distancemin, 0), hi = num(e.distancemax, 100);
     return (p) => {
-      const r = randomDirection(), d = rnd(lo, hi);
-      for (let i = 0; i < 3; i++) {
-        const v = r[i] * dirs[i];
-        p.pos[i] = origin[i] + clampSign(v, i) * d;
-        if (spd1) p.vel[i] += clampSign(v, i) * rnd(spd0, spd1);
-      }
+      const r = randomDirection(), d = lerp(lo, hi, Math.cbrt(Math.random()));
+      for (let i = 0; i < 3; i++) p.pos[i] = signed(r[i] * dirs[i] * d, i);
+      launch(p);
     };
   }
 
@@ -278,70 +293,96 @@ class System {
     return c ? c.offset : [0, 0, 0];
   }
 
-  spawn(em, at) {
-    if (this.live.length >= this.max) return null;
+  newInstance(parent) {
+    let inst = this.instances.find((i) => i.dead && !i.live.length);
+    if (inst) inst.reuse();
+    else if (this.instances.length < this.maxInstances) this.instances.push(inst = new Instance(this));
+    else return null;
+    inst.parent = parent;
+    if (parent) inst.at = parent.pos.slice();
+    return inst;
+  }
+
+  spawn(inst, em) {
+    if (inst.live.length >= this.maxEach) return;
     const p = (this.pool.pop() || new Particle()).reset();
     em?.make(p);
-    if (at) { p.pos[0] += at[0]; p.pos[1] += at[1]; p.pos[2] += at[2]; }
     for (const f of this.inits) f(p);
     p.lifetime *= this.lifeK;
     p.size0 *= this.sizeK; p.size = p.size0;
     p.alpha0 *= this.alphaK; p.alpha = p.alpha0;
     if (this.tint) { p.color0 = this.tint.map((v, i) => v * p.color0[i]); p.color = p.color0.slice(); }
     p.vel[0] *= this.speedK; p.vel[1] *= this.speedK; p.vel[2] *= this.speedK;
-    this.live.push(p);
-    for (const c of this.children) if (c.type === "eventspawn") c.system.burst(c.count, p.pos);
+    inst.live.push(p);
+    for (const c of this.children) if (c.type === "eventfollow" || c.type === "eventspawn") c.system.newInstance(this.placed(inst, p));
+  }
+
+  // The parent particle as a child sees it: position in this system's space, kept up to date.
+  placed(inst, p) {
+    p.inst = inst;
     return p;
   }
 
-  burst(n, at) {
-    for (let i = 0; i < n; i++) this.spawn(this.emitters[0], at);
-  }
-
-  emit(dt) {
-    for (const em of this.emitters) {
+  emit(inst, dt) {
+    for (const em of inst.emitters) {
       em.age += dt;
       if (em.age < em.delay) continue;
       if (em.duration && em.age - em.delay > em.duration) continue;
-      if (em.d.instantaneous) {
-        if (!em.spent) { em.spent = true; this.burst(Math.round(num(em.d.instantaneous, 1)), this.source()); }
-        if (!em.rate) continue;
+      const burst = num(em.d.instantaneous, 0);
+      if (burst && !em.spent) {
+        em.spent = true;
+        for (let i = 0; i < burst; i++) this.spawn(inst, em);
       }
       em.acc += em.rate * this.rateK * dt;
-      const n = Math.min(Math.floor(em.acc), this.max);
+      const n = Math.min(Math.floor(em.acc), this.maxEach);
       em.acc -= n;
-      for (let i = 0; i < n; i++) this.spawn(em, this.source());
+      for (let i = 0; i < n; i++) this.spawn(inst, em);
     }
-  }
-
-  // A system following another's particles emits from one of them.
-  source() {
-    const list = this.follows?.live;
-    return list ? (list.length ? list[Math.floor(Math.random() * list.length)].pos : undefined) : undefined;
   }
 
   step(dt) {
     this.time += dt;
-    if (!this.follows || this.follows.live.length) this.emit(dt);
-    const live = this.live;
-    let n = 0;
-    for (let i = 0; i < live.length; i++) {
-      const p = live[i];
-      p.age += dt;
-      p.t = p.age / p.lifetime;
-      if (p.t >= 1) {
-        this.pool.push(p);
-        for (const c of this.children) if (c.type === "eventdeath") c.system.burst(c.count, p.pos);
-        continue;
+    if (!this.instances.length && this.type === "static") this.newInstance(null);
+    for (const inst of this.instances) {
+      const bound = inst.parent;
+      if (bound) {
+        if (bound.age >= bound.lifetime) {
+          // Followers vanish with their particle; the others play out what they've emitted.
+          if (this.type === "eventfollow") { this.pool.push(...inst.live); inst.live.length = 0; }
+          inst.dead = true;
+          inst.parent = null;
+        } else {
+          inst.at[0] = bound.pos[0] + bound.inst.at[0]; inst.at[1] = bound.pos[1] + bound.inst.at[1]; inst.at[2] = bound.pos[2] + bound.inst.at[2];
+        }
       }
-      p.size = p.size0; p.alpha = p.alpha0;
-      p.color[0] = p.color0[0]; p.color[1] = p.color0[1]; p.color[2] = p.color0[2];
-      for (const op of this.ops) op(p, dt, this);
-      live[n++] = p;
+      if (!inst.dead) this.emit(inst, dt);
+      if (this.type === "eventdeath") inst.dead = true;
+      const live = inst.live;
+      let n = 0;
+      for (let i = 0; i < live.length; i++) {
+        const p = live[i];
+        p.age += dt;
+        p.t = p.age / p.lifetime;
+        if (p.t >= 1) {
+          for (const c of this.children) {
+            if (c.type !== "eventdeath") continue;
+            const child = c.system.newInstance(null);
+            if (child) child.at = [p.pos[0] + inst.at[0], p.pos[1] + inst.at[1], p.pos[2] + inst.at[2]];
+          }
+          this.pool.push(p);
+          continue;
+        }
+        p.size = p.size0; p.alpha = p.alpha0;
+        p.color[0] = p.color0[0]; p.color[1] = p.color0[1]; p.color[2] = p.color0[2];
+        for (const op of this.ops) op(p, dt, this);
+        live[n++] = p;
+      }
+      live.length = n;
     }
-    live.length = n;
     for (const c of this.children) c.system.step(dt);
   }
+
+  get count() { let n = 0; for (const i of this.instances) n += i.live.length; return n; }
 }
 
 class Sprites {
@@ -368,13 +409,13 @@ class Sprites {
     gl.bindVertexArray(null);
   }
   draw(scene) {
-    const gl = scene.gl, d = this.data, sys = this.sys, list = sys.live, f = FLOATS;
-    let o = 0;
-    for (let i = 0; i < list.length; i++) {
-      const p = list[i];
+    const gl = scene.gl, d = this.data, sys = this.sys, f = FLOATS;
+    let o = 0, total = 0;
+    for (const inst of sys.instances) for (let i = 0; i < inst.live.length && total < sys.max; i++, total++) {
+      const p = inst.live[i], at = inst.at;
       const life = sys.randomFrame ? p.frame : (p.t * sys.seq) % 1;
       for (let c = 0; c < 4; c++) {
-        d[o] = p.pos[0]; d[o + 1] = p.pos[1]; d[o + 2] = p.pos[2];
+        d[o] = p.pos[0] + at[0]; d[o + 1] = p.pos[1] + at[1]; d[o + 2] = p.pos[2] + at[2];
         d[o + 3] = c & 1; d[o + 4] = c >> 1; d[o + 5] = p.rot[2]; d[o + 6] = p.size;
         d[o + 7] = p.color[0]; d[o + 8] = p.color[1]; d[o + 9] = p.color[2]; d[o + 10] = p.alpha;
         d[o + 11] = p.rot[0]; d[o + 12] = p.rot[1];
@@ -385,7 +426,7 @@ class Sprites {
     gl.bindVertexArray(this.vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
     gl.bufferSubData(gl.ARRAY_BUFFER, 0, d, 0, o);
-    gl.drawElements(gl.TRIANGLES, list.length * 6, gl.UNSIGNED_INT, 0);
+    gl.drawElements(gl.TRIANGLES, total * 6, gl.UNSIGNED_INT, 0);
     gl.bindVertexArray(scene.quadVao);
   }
 }
@@ -398,14 +439,15 @@ WE.ParticleLayer = class extends WE.LayerBase {
     const def = await s.assets.json(d.particle);
     if (!def) throw new Error(`particle ${d.particle} not found`);
     this.parts = [];
-    this.root = await this.addSystem(def, this.over, 1);
+    this.root = await this.addSystem(def, this.over, 1, "static");
     // A saved start time means the scene opens as if it had been running that long.
     const warm = Math.min(5, num(def.starttime, 0));
     for (let t = 0; t < warm; t += 1 / 20) this.root.step(1 / 20);
   }
-  async addSystem(def, over, mult) {
+  async addSystem(def, over, instances, type) {
     const s = this.scene;
-    const sys = new System(this, def, over, mult);
+    const sys = new System(this, def, over, instances);
+    sys.type = type;
     const mat = await s.assets.json(def.material);
     if (!mat) throw new Error(`material ${def.material} not found`);
     const pass = mat.passes[0], renderer = def.renderer?.[0]?.name || "sprite";
@@ -426,11 +468,11 @@ WE.ParticleLayer = class extends WE.LayerBase {
     for (const c of def.children || []) {
       const child = await s.assets.json(c.name);
       if (!child) continue;
-      const count = num(c.maxcount, 1);
-      const sub = await this.addSystem(child, over, c.type === "eventfollow" ? 1 : Math.max(1, count));
       const type = c.type || "static";
-      if (type === "eventfollow") sub.follows = sys;
-      sys.children.push({ system: sub, type, count });
+      // A child's maxcount is how many copies of it can run at once.
+      const count = type === "static" ? 1 : Math.max(1, Math.min(2000, num(c.maxcount, 1)));
+      const sub = await this.addSystem(child, over, count, type);
+      sys.children.push({ system: sub, type });
     }
     return sys;
   }
@@ -448,7 +490,7 @@ WE.ParticleLayer = class extends WE.LayerBase {
     }
     gl.colorMask(true, true, true, false);
     for (const part of this.parts) {
-      if (!part.sys.live.length) continue;
+      if (!part.sys.count) continue;
       s.drawPass(part.pass, s.sceneTarget, part.tex, null, {
         mvp: m, blend: part.pass.blending, layer: this, geometry: part.mesh,
         set: (set) => {
