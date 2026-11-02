@@ -269,7 +269,7 @@ function compileWithFixes(gl, type, body, prefix) {
   let headerLines = head.split("\n").length - 1;
   const wrapped = new Set();
   const wide = new Set([...body.matchAll(/^\s*varying\s+vec[34]\s+(\w+)\s*;/gm)].map((m) => m[1]));
-  const ints = new Set([...body.matchAll(/\b(?:const\s+)?(?:int|uint)\s+(\w+)\s*[=;]/g)].map((m) => m[1]));
+  const ints = new Set([...body.matchAll(/\b(?:const\s+)?(?:int|uint|bool)\s+(\w+)\s*[=;]/g)].map((m) => m[1]));
   for (const m of (prefix + body).matchAll(/^\s*#\s*define\s+(\w+)\s+\d+\s*$/gm)) ints.add(m[1]);
   const types = {};
   for (const m of body.matchAll(/\b(vec[234]|float|int|uint)\s+(\w+)\s*[=;,)]/g)) types[m[2]] = m[1];
@@ -305,6 +305,17 @@ function compileWithFixes(gl, type, body, prefix) {
     if (changed) { src = lines.join("\n"); continue; }
     for (const n of errorLines(last, headerLines)) {
       if (lines[n] === undefined) continue;
+      // An int that's given a float was only ever a loosely typed float.
+      if (/cannot convert from '[^']*float' to '[^']*int'/.test(last)) {
+        for (const stmt of lines[n].split(";")) {
+          const name = stmt.match(/^\s*(?:u?int\s+)?(\w+)\s*[-+*/]?=/)?.[1];
+          if (!name || !ints.has(name)) continue;
+          const decl = new RegExp(`\\b(?:u?int)(\\s+${name}\\b)`);
+          const at = lines.findIndex((l) => decl.test(l));
+          if (at >= 0) { lines[at] = lines[at].replace(decl, "float$1"); ints.delete(name); changed = true; }
+        }
+        if (changed) continue;
+      }
       let fixed = narrowAssignment(lines[n], types);
       if (fixed === lines[n]) fixed = moduloFloat(lines[n]);
       if (fixed === lines[n]) fixed = boolToFloat(lines[n]);
@@ -313,7 +324,12 @@ function compileWithFixes(gl, type, body, prefix) {
       if (fixed === lines[n]) fixed = lines[n].replace(/\b(\w+)\b(?![\w.(])/g, (id) => (wide.has(id) ? `${id}.xy` : id));
       // An int variable where a float belongs.
       if (fixed === lines[n] && !/\[/.test(lines[n]) && !/\bfor\b/.test(lines[n])) {
-        fixed = lines[n].replace(/(?<![\w.])(\w+)(?![\w(])/g, (id, _, at) => (ints.has(id) && !/\b(int|uint)\s+$/.test(lines[n].slice(0, at)) ? `float(${id})` : id));
+        // Only the right of an assignment, and nothing already converted.
+        fixed = lines[n].split(";").map((stmt) => {
+          const eq = stmt.search(/[-+*/]?=(?!=)/);
+          const from = eq < 0 ? 0 : eq + 1;
+          return stmt.slice(0, from) + stmt.slice(from).replace(/(?<![\w.])(\w+)(?![\w(])/g, (id, _, at, all) => (ints.has(id) && !/\b(?:int|uint|bool|float)\s*\(?\s*$/.test(all.slice(0, at)) ? `float(${id})` : id));
+        }).join(";");
       }
       if (fixed !== lines[n]) { lines[n] = fixed; changed = true; }
     }
@@ -322,7 +338,10 @@ function compileWithFixes(gl, type, body, prefix) {
   }
   const r = attempt(blanketFloats(src));
   if (r.shader) return r;
-  return { log: last || r.log, source: src };
+  // Name the offending line, so a failure can be understood from backdrop.log alone.
+  const bad = [...errorLines(last, headerLines)][0];
+  const line = bad === undefined ? "" : (src.split("\n")[bad] ?? "").trim();
+  return { log: `${last || r.log}\n${line ? `ERROR: in: ${line}` : ""}`, source: src };
 }
 
 // Varyings can disagree between stages (vec2 out, vec4 in). ES fails to link that, so the vertex
@@ -429,8 +448,10 @@ WE.buildProgram = function (gl, source, combos) {
 };
 
 function firstError(log) {
-  const m = String(log).match(/ERROR:[^\n]*/);
-  return (m ? m[0] : String(log)).slice(0, 240);
+  const lines = String(log).match(/ERROR:[^\n]*/g);
+  if (!lines) return String(log).slice(0, 240);
+  const context = lines[lines.length - 1].startsWith("ERROR: in:") ? ` ${lines.pop().slice(7)}` : "";
+  return `${lines[0].slice(0, 200)}${context.slice(0, 200)}`;
 }
 
 WE.parseVec = function (v) {

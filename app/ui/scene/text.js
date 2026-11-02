@@ -94,7 +94,7 @@ WE.TextLayer = class extends WE.ImageLayerBase {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     this.tex.width = this.tex.texWidth = bw;
     this.tex.height = this.tex.texHeight = bh;
-    if (this.a && (bw !== this.a.width || bh !== this.a.height)) this.resize(bw, bh);
+    if (this.w && (bw !== this.w || bh !== this.h)) this.resize(bw, bh);
   }
   beforeRender() { this.paint(); }
 };

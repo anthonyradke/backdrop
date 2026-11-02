@@ -398,15 +398,22 @@ class ImageLayer extends Layer {
     } else this.uvMax = [1, 1];
   }
   resize(w, h) {
-    const s = this.scene;
     this.a?.delete(); this.b?.delete();
+    this.a = this.b = null;
     this.w = w; this.h = h;
-    this.a = new Target(s.gl, w, h, s.hdr);
-    this.b = new Target(s.gl, w, h, s.hdr);
-    s.targets.set(`_rt_imageLayerComposite_${this.id}_a`, this.a);
-    s.targets.set(`_rt_imageLayerComposite_${this.id}_b`, this.b);
     this.ortho = M.ortho(0, w, 0, h);
   }
+  // Most layers need scratch framebuffers only while they draw, so they share a pool. A layer other
+  // layers read from keeps its own.
+  acquire() {
+    const s = this.scene;
+    if (this.kept) {
+      if (!this.a) { this.a = new Target(s.gl, this.w, this.h, s.hdr); this.b = new Target(s.gl, this.w, this.h, s.hdr); }
+      return [this.a, this.b];
+    }
+    return [s.borrow(this.w, this.h), s.borrow(this.w, this.h)];
+  }
+  release(pair) { if (!this.kept) pair.forEach((t) => this.scene.giveBack(t)); }
   async buildEffects() {
     const s = this.scene;
     this.effects = [];
@@ -417,7 +424,7 @@ class ImageLayer extends Layer {
         this.effects.push({ visible, passes: await s.makeEffect(this, e) });
       } catch (err) {
         // A broken effect just goes missing; the layer still draws.
-        s.warn(`effect ${e.file} on "${this.name}": ${err.message}`);
+        s.warnOnce(`effect ${e.file}: ${err.message}`);
       }
     }
   }
@@ -467,8 +474,8 @@ class ImageLayer extends Layer {
     if (this.colorBlend) chain.push(this.colorBlend);
     if (this.model.passthrough && chain.length === 1) return;
     const passthrough = !!this.model.passthrough;
-    let drawTo = this.b, main = this.a;
-    let drawing = this.a; // the first draw lands in A, then they alternate
+    const pair = chain.length > 1 ? this.acquire() : null;
+    let drawing = pair?.[0]; // the first draw lands in A, then they alternate
     let input = this.texture;
     let effectInput = null, inTarget = false;
     const quad = (x0, y0, x1, y1, u1, v1) => s.quad(x0, y0, x1, y1, u1, v1);
@@ -507,10 +514,11 @@ class ImageLayer extends Layer {
       } else {
         input = dest;
         inTarget = false; effectInput = null;
-        drawing = drawing === this.a ? this.b : this.a;
+        if (pair) drawing = drawing === pair[0] ? pair[1] : pair[0];
       }
     }
     gl.colorMask(true, true, true, true);
+    if (pair) this.release(pair);
   }
 }
 
@@ -536,6 +544,7 @@ WE.Scene = class {
     this.byId = new Map();
     this.order = [];
     this.targets = new Map();
+    this.pool = new Map();
     this.textures = new Map();
     this.programs = new Map();
     this.videos = [];
@@ -583,8 +592,14 @@ WE.Scene = class {
       this.width = mx ? mx * 2 : 1920; this.height = my ? my * 2 : 1080;
     }
     this.hdr = !!this.value(g.hdr) && !!this.ext.float;
-    this.canvas.width = this.width;
-    this.canvas.height = this.height;
+    // No point drawing more pixels than the screen shows. Layers keep their own sizes, so only the
+    // final picture gets smaller.
+    const [sw, sh] = this.opts.screen || [this.width, this.height];
+    const k = Math.min(1, Math.max(sw / this.width, sh / this.height));
+    this.fbWidth = Math.max(1, Math.round(this.width * k));
+    this.fbHeight = Math.max(1, Math.round(this.height * k));
+    this.canvas.width = this.fbWidth;
+    this.canvas.height = this.fbHeight;
     this.clearColor = WE.parseVec(this.value(g.clearcolor) ?? "0 0 0");
     this.clearEnabled = this.value(g.clearenabled) !== false;
     this.ambient = WE.parseVec(this.value(g.ambientcolor) ?? "0.3 0.3 0.3");
@@ -608,8 +623,8 @@ WE.Scene = class {
     gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 20, 12);
     this.quadData = new Float32Array(30);
 
-    this.sceneTarget = new Target(gl, this.width, this.height, this.hdr);
-    this.snapshot = new Target(gl, this.width, this.height, this.hdr);
+    this.sceneTarget = new Target(gl, this.fbWidth, this.fbHeight, this.hdr);
+    this.snapshot = new Target(gl, this.fbWidth, this.fbHeight, this.hdr);
     this.white = solidTexture(gl, [255, 255, 255, 255]);
     this.black = solidTexture(gl, [0, 0, 0, 0]);
     this.normal = solidTexture(gl, [128, 128, 255, 255]);
@@ -712,7 +727,25 @@ WE.Scene = class {
     return p;
   }
 
+  borrow(w, h) {
+    const key = `${Math.round(w)}x${Math.round(h)}`;
+    return this.pool.get(key)?.pop() || Object.assign(new Target(this.gl, w, h, this.hdr), { key });
+  }
+  giveBack(t) {
+    if (!this.pool.has(t.key)) this.pool.set(t.key, []);
+    this.pool.get(t.key).push(t);
+  }
+
   namedTarget(name) {
+    const composite = name.match(/^_rt_imageLayerComposite_(-?\d+)_([ab])$/);
+    if (composite) {
+      const l = this.byId.get(+composite[1]);
+      if (l?.acquire) {
+        l.kept = true;
+        const [a, b] = l.acquire();
+        return composite[2] === "a" ? a : b;
+      }
+    }
     if (this.targets.has(name)) return this.targets.get(name);
     // Render targets scenes refer to by name without an effect declaring them.
     const m = name.match(/_rt_(Full|Half|Quarter|Eighth)/i);
@@ -829,7 +862,7 @@ WE.Scene = class {
     if (this.snapshotFrame === this.frame && this.snapshotDraws === this.draws) return this.snapshot;
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.sceneTarget.fb);
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, this.snapshot.fb);
-    gl.blitFramebuffer(0, 0, this.width, this.height, 0, 0, this.width, this.height, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+    gl.blitFramebuffer(0, 0, this.fbWidth, this.fbHeight, 0, 0, this.fbWidth, this.fbHeight, gl.COLOR_BUFFER_BIT, gl.NEAREST);
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
     this.snapshotFrame = this.frame; this.snapshotDraws = this.draws;
     return this.snapshot;
@@ -949,9 +982,9 @@ ${fs}`]]) {
       for (const n of ["t", "t2", "dir", "threshold", "strength", "tint"]) loc[n] = gl.getUniformLocation(p, n);
       return { p, loc };
     };
-    const w = Math.max(1, this.width >> 2), h = Math.max(1, this.height >> 2);
+    const w = Math.max(1, this.fbWidth >> 2), h = Math.max(1, this.fbHeight >> 2);
     this.bloom = {
-      a: new Target(gl, w, h, this.hdr), b: new Target(gl, w, h, this.hdr), out: new Target(gl, this.width, this.height, this.hdr),
+      a: new Target(gl, w, h, this.hdr), b: new Target(gl, w, h, this.hdr), out: new Target(gl, this.fbWidth, this.fbHeight, this.hdr),
       strength: +(this.value(this.hdr ? g.bloomhdrstrength : g.bloomstrength) ?? 2),
       threshold: +(this.value(this.hdr ? g.bloomhdrthreshold : g.bloomthreshold) ?? 0.65),
       tint: WE.parseVec(this.value(g.bloomtint) ?? "1 1 1"),
@@ -1022,7 +1055,7 @@ ${fs}`]]) {
     }
     this.frameUniforms = sharedUniforms(this);
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneTarget.fb);
-    gl.viewport(0, 0, this.width, this.height);
+    gl.viewport(0, 0, this.fbWidth, this.fbHeight);
     gl.colorMask(true, true, true, true);
     const c = this.clearEnabled ? this.clearColor : [0, 0, 0];
     gl.clearColor(c[0], c[1], c[2], 1);
@@ -1035,8 +1068,8 @@ ${fs}`]]) {
     gl.colorMask(true, true, true, true);
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, final.fb);
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
-    gl.viewport(0, 0, this.width, this.height);
-    gl.blitFramebuffer(0, 0, this.width, this.height, 0, this.height, this.width, 0, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+    gl.viewport(0, 0, this.fbWidth, this.fbHeight);
+    gl.blitFramebuffer(0, 0, this.fbWidth, this.fbHeight, 0, this.fbHeight, this.fbWidth, 0, gl.COLOR_BUFFER_BIT, gl.NEAREST);
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
   }
 

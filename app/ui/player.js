@@ -45,7 +45,7 @@ function swap(p) {
     next.src = url(p.src);
   } else if (p.kind === "scene") {
     next = document.createElement("canvas");
-    const scene = new WE.Scene(next, { base: url(p.src), stock: `${BASE}we-assets/`, log: report });
+    const scene = new WE.Scene(next, { base: url(p.src), stock: `${BASE}we-assets/`, log: report, screen: [p.rect[2], p.rect[3]] });
     next.scene = scene;
     scene.load().then(() => {
       if (el !== next) return scene.destroy();

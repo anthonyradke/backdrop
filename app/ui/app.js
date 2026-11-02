@@ -177,7 +177,9 @@ async function pumpThumbs() {
       if (it.kind === "video" && mediaVideoFailed()) return grabFrame(videoUrl(`${it.id}/${it.file}`), it.kind);
       throw e;
     });
-    await invoke("save_thumb", { id, data, poster, width, height });
+    // A scene's picture is only a preview of it, so its size says nothing about the wallpaper.
+    const known = it.kind === "scene" ? {} : { width, height };
+    await invoke("save_thumb", { id, data, poster, ...known });
     S.thumbVer[id] = Date.now();
   } catch (e) {
     console.warn("thumbnail failed", id, e);

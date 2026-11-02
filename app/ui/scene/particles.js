@@ -202,6 +202,8 @@ class Particle {
     this.color0 = [1, 1, 1]; this.color = [1, 1, 1];
     this.age = 0; this.lifetime = 1; this.t = 0; this.frame = Math.random();
     this.oscs = null;
+    this.history = null;
+    this.since = 0;
     return this;
   }
   osc(key, f0, f1, ph) {
@@ -238,7 +240,11 @@ class System {
     this.children = [];
     const o = this.over;
     this.maxEach = Math.max(1, Math.min(50000, Math.ceil(num(def.maxcount, 100) * num(o.count, 1))));
-    this.max = Math.min(60000, this.maxEach * instances);
+    const ropeTrail = def.renderer?.find((r) => r.name === "ropetrail");
+    this.trailSegments = ropeTrail ? Math.max(2, Math.min(64, num(ropeTrail.segments, 16))) : 0;
+    this.trailStep = ropeTrail ? num(ropeTrail.length, 1) / this.trailSegments : 0;
+    this.trailFade = !!ropeTrail?.fadealpha;
+    this.max = Math.min(60000, this.maxEach * instances * (this.trailSegments || 1));
     this.rateK = num(o.rate, 1);
     this.lifeK = num(o.lifetime, 1);
     this.sizeK = num(o.size, 1);
@@ -375,6 +381,15 @@ class System {
         p.size = p.size0; p.alpha = p.alpha0;
         p.color[0] = p.color0[0]; p.color[1] = p.color0[1]; p.color[2] = p.color0[2];
         for (const op of this.ops) op(p, dt, this);
+        if (this.trailSegments) {
+          const h = p.history || (p.history = [p.pos.slice()]);
+          p.since = (p.since || 0) + dt;
+          if (p.since >= this.trailStep) {
+            p.since = 0;
+            h.push(p.pos.slice());
+            if (h.length > this.trailSegments) h.shift();
+          } else h[h.length - 1] = p.pos.slice();
+        }
         live[n++] = p;
       }
       live.length = n;
@@ -423,11 +438,60 @@ class Sprites {
         o += f;
       }
     }
+    this.flush(gl, o, total);
+  }
+  // A rope is a chain through the particles in spawn order. Each link is a sprite stretched between
+  // two neighbours, which the trail path of the stock shader does given the gap as its velocity.
+  drawRope(scene) {
+    const gl = scene.gl, d = this.data, sys = this.sys, f = FLOATS;
+    let o = 0, total = 0;
+    for (const inst of sys.instances) {
+      const list = inst.live, at = inst.at;
+      for (let i = 0; i + 1 < list.length && total < sys.max; i++, total++) {
+        const a = list[i], b = list[i + 1];
+        const dx = b.pos[0] - a.pos[0], dy = b.pos[1] - a.pos[1], dz = b.pos[2] - a.pos[2];
+        for (let c = 0; c < 4; c++) {
+          d[o] = (a.pos[0] + b.pos[0]) / 2 + at[0]; d[o + 1] = (a.pos[1] + b.pos[1]) / 2 + at[1]; d[o + 2] = (a.pos[2] + b.pos[2]) / 2 + at[2];
+          d[o + 3] = c & 1; d[o + 4] = c >> 1; d[o + 5] = 0; d[o + 6] = a.size;
+          d[o + 7] = a.color[0]; d[o + 8] = a.color[1]; d[o + 9] = a.color[2]; d[o + 10] = a.alpha;
+          d[o + 11] = 0; d[o + 12] = 0;
+          d[o + 13] = dx; d[o + 14] = dy; d[o + 15] = dz; d[o + 16] = 0;
+          o += f;
+        }
+      }
+    }
+    this.flush(gl, o, total);
+  }
+  // A ropetrail is the path each particle has travelled, drawn the same way as a rope.
+  drawTrail(scene) {
+    const gl = scene.gl, d = this.data, sys = this.sys, f = FLOATS;
+    let o = 0, total = 0;
+    for (const inst of sys.instances) {
+      const at = inst.at;
+      for (const p of inst.live) {
+        const t = p.history;
+        if (!t) continue;
+        for (let i = 0; i + 1 < t.length && total < sys.max; i++, total++) {
+          const a = t[i], b = t[i + 1], fade = sys.trailFade ? (i + 1) / t.length : 1;
+          for (let c = 0; c < 4; c++) {
+            d[o] = (a[0] + b[0]) / 2 + at[0]; d[o + 1] = (a[1] + b[1]) / 2 + at[1]; d[o + 2] = (a[2] + b[2]) / 2 + at[2];
+            d[o + 3] = c & 1; d[o + 4] = c >> 1; d[o + 5] = 0; d[o + 6] = p.size;
+            d[o + 7] = p.color[0]; d[o + 8] = p.color[1]; d[o + 9] = p.color[2]; d[o + 10] = p.alpha * fade;
+            d[o + 11] = 0; d[o + 12] = 0;
+            d[o + 13] = b[0] - a[0]; d[o + 14] = b[1] - a[1]; d[o + 15] = b[2] - a[2]; d[o + 16] = 0;
+            o += f;
+          }
+        }
+      }
+    }
+    this.flush(gl, o, total);
+  }
+  flush(gl, floats, count) {
     gl.bindVertexArray(this.vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
-    gl.bufferSubData(gl.ARRAY_BUFFER, 0, d, 0, o);
-    gl.drawElements(gl.TRIANGLES, total * 6, gl.UNSIGNED_INT, 0);
-    gl.bindVertexArray(scene.quadVao);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.data, 0, floats);
+    gl.drawElements(gl.TRIANGLES, count * 6, gl.UNSIGNED_INT, 0);
+    gl.bindVertexArray(this.scene.quadVao);
   }
 }
 
@@ -451,18 +515,20 @@ WE.ParticleLayer = class extends WE.LayerBase {
     const mat = await s.assets.json(def.material);
     if (!mat) throw new Error(`material ${def.material} not found`);
     const pass = mat.passes[0], renderer = def.renderer?.[0]?.name || "sprite";
-    const trail = /trail/.test(renderer);
+    const ropeTrail = renderer === "ropetrail";
+    const rope = renderer === "rope" || ropeTrail;
+    const trail = /trail/.test(renderer) || rope;
     const name = pass.textures?.[0];
     const tex = name ? await s.texture(name) : s.white;
     const combos = { ...(pass.combos || {}), GS_ENABLED: 0, THICKFORMAT: 1, TRAILRENDERER: trail ? 1 : 0 };
     if (tex.frames?.length) combos.SPRITESHEET = 1;
-    if (/^rope/.test(renderer)) s.warnOnce("rope particles draw as sprites");
     const shader = pass.shader === "genericropeparticle" ? "genericparticle" : pass.shader;
     const p = await s.makePass(this, { ...pass, shader }, { combos }, null, null, tex);
     const r = def.renderer?.[0] || {};
     this.parts.push({
-      sys, pass: p, tex, mesh: new Sprites(s, sys),
-      vars: [num(r.length, 0.05), num(r.maxlength, 10), num(r.minlength, 0), 0],
+      sys, pass: p, tex, mesh: new Sprites(s, sys), rope, ropeTrail,
+      // A rope link's "velocity" is the gap to its neighbour, so it stretches exactly that far.
+      vars: rope ? [1 / Math.max(1, tex.height / tex.width), 1e9, 0, 0] : [num(r.length, 0.05), num(r.maxlength, 10), num(r.minlength, 0), 0],
       frame: tex.frames?.length ? [tex.frames[0].w / tex.texWidth, tex.frames[0].h / tex.texHeight, tex.frames.length, tex.height / tex.width] : [1, 1, 1, tex.height / tex.width],
     });
     for (const c of def.children || []) {
@@ -492,7 +558,8 @@ WE.ParticleLayer = class extends WE.LayerBase {
     for (const part of this.parts) {
       if (!part.sys.count) continue;
       s.drawPass(part.pass, s.sceneTarget, part.tex, null, {
-        mvp: m, blend: part.pass.blending, layer: this, geometry: part.mesh,
+        mvp: m, blend: part.pass.blending, layer: this,
+        geometry: part.ropeTrail ? { draw: (scene) => part.mesh.drawTrail(scene) } : part.rope ? { draw: (scene) => part.mesh.drawRope(scene) } : part.mesh,
         set: (set) => {
           set("g_RenderVar0", part.vars);
           set("g_RenderVar1", part.frame);
