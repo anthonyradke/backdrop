@@ -283,7 +283,7 @@ pub fn show_main(app: &AppHandle) {
         .inner_size(1120.0, 740.0)
         .min_inner_size(780.0, 520.0)
         .theme(Some(tauri::Theme::Dark))
-        .background_color(tauri::window::Color(7, 8, 11, 255));
+        .background_color(tauri::window::Color(10, 10, 10, 255));
     #[cfg(windows)]
     let b = b.decorations(false).additional_browser_args(WEBVIEW_ARGS);
     match b.build() {

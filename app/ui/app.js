@@ -17,7 +17,6 @@ const S = {
   picking: false, // library select mode, for acting on many wallpapers at once
   picked: new Set(), // ids ticked in select mode
   anchor: null, // last tile clicked, where a shift-click range starts
-  tint: {}, // id -> [accent, ink] sampled from its thumbnail, or null for grey art
   state: null, // StateView from Rust
   upd: null, // update::Status from Rust
   thumbVer: {}, // id -> cache buster after a new thumbnail
@@ -75,6 +74,11 @@ const ICON = {
   close: '<svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
   update: '<svg viewBox="0 0 16 16"><path d="M13.2 8A5.2 5.2 0 1 1 11.6 4.3"/><path d="M12.2 1.9v2.8H9.4"/></svg>',
   check: '<svg viewBox="0 0 16 16"><path d="m3.5 8.4 3 3 6-6.4"/></svg>',
+  workshop: '<svg viewBox="0 0 16 16"><path d="M2.6 6.2 3.6 3h8.8l1 3.2"/><path d="M2.6 6.2a1.8 1.8 0 0 0 3.6 0 1.8 1.8 0 0 0 3.6 0 1.8 1.8 0 0 0 3.6 0"/><path d="M3.4 7.9V13h9.2V7.9M6.6 13v-2.8h2.8V13"/></svg>',
+  monitor: '<svg viewBox="0 0 16 16"><rect x="1.9" y="2.6" width="12.2" height="8.4" rx="1.4"/><path d="M5.6 13.6h4.8M8 11v2.6"/></svg>',
+  settings: '<svg viewBox="0 0 16 16"><path d="M6.8 1.9h2.4l.4 1.7 1.3.7 1.6-.6 1.2 2-1.3 1.2v1.6l1.3 1.2-1.2 2-1.6-.6-1.3.7-.4 1.7H6.8l-.4-1.7-1.3-.7-1.6.6-1.2-2 1.3-1.2V7.1L2.3 5.9l1.2-2 1.6.6 1.3-.7z"/><circle cx="8" cy="8" r="2"/></svg>',
+  pause: '<svg viewBox="0 0 16 16"><path d="M5.5 3.5v9M10.5 3.5v9"/></svg>',
+  resume: '<svg viewBox="0 0 16 16"><path d="M5 3.4v9.2l7.2-4.6z"/></svg>',
   library: '<svg viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="4.6" height="4.6" rx="1.2"/><rect x="8.9" y="2.5" width="4.6" height="4.6" rx="1.2"/><rect x="2.5" y="8.9" width="4.6" height="4.6" rx="1.2"/><rect x="8.9" y="8.9" width="4.6" height="4.6" rx="1.2"/></svg>',
 };
 
@@ -271,7 +275,6 @@ const actions = {
     if (S.tab === "workshop" && !S.ws.items) wsLoad();
   },
   wsView: (el) => { S.ws.view = el.dataset.v; S.ws.sel = null; S.ws.open = false; wsLoad(); },
-  wsSort: (el) => { S.ws.sort = el.dataset.v; wsLoad(); },
   wsKind: (el) => { S.ws.kind = el.dataset.v; wsLoad(); },
   wsMore: () => wsLoad(true),
   wsRetry: () => wsLoad(),
@@ -308,7 +311,12 @@ const actions = {
   },
   wsUnhide: () => call("workshop_unhide_all", {}, tr("Hidden wallpapers will show again")),
   wsShow: (el) => { S.ws.open = false; S.tab = "library"; S.filter = "all"; S.query = ""; S.sel = el.dataset.item; S.preview = null; render(); },
-  filter: (el) => { S.filter = el.dataset.f; render(); },
+  filter: (el) => { S.filter = el.dataset.v; render(); },
+  showItem: (el) => {
+    S.tab = el.dataset.item ? "library" : "displays";
+    if (el.dataset.item) { S.sel = el.dataset.item; S.filter = "all"; S.query = ""; S.picking = false; S.preview = null; }
+    render();
+  },
   pick: async (el) => importResult(await call("pick_files", { folder: el.dataset.folder === "1" })),
   select: (el, ev) => {
     const id = el.dataset.id;
@@ -391,6 +399,7 @@ document.addEventListener("click", (ev) => {
 
 document.addEventListener("change", (ev) => {
   if (ev.target.id === "ws-genre") { S.ws.genre = ev.target.value; wsLoad(); }
+  if (ev.target.id === "ws-sort") { S.ws.sort = ev.target.value; wsLoad(); }
 });
 
 document.addEventListener("input", (ev) => {
@@ -452,10 +461,24 @@ function translateStatic() {
   document.documentElement.lang = LANG;
 }
 
-function renderTitle() {
-  const tabs = [["library", tr("Library")], ["workshop", tr("Workshop")], ["displays", tr("Displays")], ["settings", tr("Settings")]];
-  morph($("#tabs"), tabs.map(([k, t]) => `<button class="nav-tab press ${S.tab === k ? "on" : ""}" data-act="tab" data-tab="${k}">${t}</button>`).join(""));
+// The left nav: the pages, then each display with what it's showing, then pause and updates.
+function renderNav() {
+  const counts = { library: S.state.items.length, workshop: S.state.workshop.pending.length || "" };
+  const tabs = [["library", tr("Library"), ICON.library], ["workshop", tr("Workshop"), ICON.workshop], ["displays", tr("Displays"), ICON.monitor], ["settings", tr("Settings"), ICON.settings]];
+  morph($("#tabs"), tabs.map(([k, t, icon]) => `<button class="nav-tab press ${S.tab === k ? "on" : ""}" data-act="tab" data-tab="${k}" aria-label="${esc(t)}">${icon}<span>${t}</span>${counts[k] ? `<span class="n tnum">${counts[k]}</span>` : ""}</button>`).join(""));
+
   const ds = S.state.displays;
+  const byId = new Map(S.state.items.map((e) => [e.id, e]));
+  $("#screens-label").textContent = ds.length ? (spanned() ? tr("Spanning all displays") : ds.length > 1 ? tr("Displays") : tr("Now showing")) : "";
+  morph($("#screens"), ds.map((d) => {
+    const e = d.item && byId.get(d.item);
+    const t = e && thumbUrl(e);
+    return `<button class="nav-screen press" data-act="showItem" data-item="${esc(d.item ?? "")}" data-key="ns-${esc(d.key)}" aria-label="${esc(`${d.name}: ${e ? e.name : tr("Nothing set")}`)}">
+      <span class="art">${t ? `<img src="${esc(t)}" draggable="false">` : ""}<span class="dot ${d.status}"></span></span>
+      <span class="what"><div>${esc(e ? e.name : tr("Nothing set"))}</div><div>${esc(ds.length > 1 ? d.name : e ? statusText(d) : "")}</div></span>
+    </button>`;
+  }).join(""));
+
   const anyPlaying = ds.some((d) => d.status === "playing");
   const paused = ds.filter((d) => d.status === "paused");
   let dot = "", text = "";
@@ -464,12 +487,18 @@ function renderTitle() {
   else if (paused.length) { dot = "paused"; text = tr(REASON[paused[0].reason] ?? "Paused"); }
   else if (ds.some((d) => d.status === "image")) { dot = "image"; text = tr("Still image"); }
   else text = tr("No wallpaper");
-  morph($("#live"), `<span class="dot ${dot}"></span>${esc(text)}`);
+  morph($("#live"), `${S.state.paused ? ICON.resume : ICON.pause}<span>${esc(text)}</span><span class="dot ${dot}"></span>`);
   renderUpdate();
 }
 
-// Always in the title bar: a quiet icon that checks for updates, which turns into a labelled
-// button when a new version is waiting, and shows the download while it installs.
+const statusText = (d) =>
+  d.status === "playing" ? tr("Playing")
+  : d.status === "paused" ? tr(REASON[d.reason] ?? "Paused")
+  : d.status === "image" ? tr("Still image (set as the system wallpaper)")
+  : tr("Nothing set");
+
+// At the bottom of the nav: the version, which checks for updates when clicked, turns into a filled
+// Update button when a new version is waiting, and shows the download while it installs.
 function renderUpdate() {
   const el = $("#upd"), u = S.upd;
   if (!u) { el.hidden = true; return; }
@@ -484,14 +513,16 @@ function renderUpdate() {
     title = tr("Update to Backdrop {v} and restart. Your library and settings stay.", { v: u.available }) + (u.notes ? `
 
 ${u.notes}` : "");
-    html = `${ICON.download}<span>${esc(tr("Update"))}</span>`;
+    html = `${ICON.download}<span>${esc(tr("Update to {v}", { v: u.available }))}</span>`;
   } else if (u.checking) {
     cls = "spin";
     title = tr("Checking for updates…");
+    html = `${ICON.update}<span>${esc(tr("Checking…"))}</span>`;
   } else {
-    title = tr("Check for updates") + ` (Backdrop ${u.current})`;
+    title = tr("Check for updates");
+    html = `${ICON.update}<span>Backdrop ${esc(u.current)}</span>`;
   }
-  el.className = `tb-upd press ${cls}`;
+  el.className = `nav-upd press ${cls}`;
   el.disabled = u.progress != null;
   el.title = title;
   el.setAttribute("aria-label", title);
@@ -501,52 +532,6 @@ ${u.notes}` : "");
 function placeholder(e, key = "") {
   const glyph = e.kind === "web" ? "&lt;/&gt;" : esc(kindLabel(e));
   return `<div class="ph ${e.kind}" ${key ? `data-key="${key}"` : ""}><span>${glyph}</span></div>`;
-}
-
-// ---------- tint ----------
-// The accent follows the wallpaper in the sidebar: one pass over a 32×18 copy of its thumbnail, weighted
-// toward saturated mid-tones, then pinned to a lightness that dark text reads on.
-
-const tintBusy = new Set();
-function tintOf(e) {
-  if (!e) return null;
-  if (e.id in S.tint) return S.tint[e.id];
-  const src = thumbUrl(e);
-  if (src && !tintBusy.has(e.id)) {
-    tintBusy.add(e.id);
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => { S.tint[e.id] = sampleTint(img); tintBusy.delete(e.id); render(); };
-    img.onerror = () => { S.tint[e.id] = null; tintBusy.delete(e.id); };
-    img.src = src;
-  }
-  return null;
-}
-function sampleTint(img) {
-  const c = document.createElement("canvas");
-  c.width = 32; c.height = 18;
-  const g = c.getContext("2d", { willReadFrequently: true });
-  g.drawImage(img, 0, 0, 32, 18);
-  const d = g.getImageData(0, 0, 32, 18).data;
-  let x = 0, y = 0, sat = 0, sum = 0;
-  for (let i = 0; i < d.length; i += 4) {
-    const r = d[i] / 255, gr = d[i + 1] / 255, b = d[i + 2] / 255;
-    const max = Math.max(r, gr, b), min = Math.min(r, gr, b), ch = max - min, l = (max + min) / 2;
-    if (ch < 0.05) continue;
-    const s = ch / (1 - Math.abs(2 * l - 1));
-    const h = (max === r ? ((gr - b) / ch + 6) % 6 : max === gr ? (b - r) / ch + 2 : (r - gr) / ch + 4) * (Math.PI / 3);
-    const w = s * ch * (1 - Math.abs(l - 0.55));
-    x += Math.cos(h) * w; y += Math.sin(h) * w; sat += s * w; sum += w;
-  }
-  if (sum < 3) return null; // grey art keeps the neutral accent
-  const hue = Math.round(((Math.atan2(y, x) * 180) / Math.PI + 360) % 360);
-  const s = Math.round(Math.min(0.85, Math.max(0.45, sat / sum)) * 100);
-  return [`hsl(${hue} ${s}% 68%)`, `hsl(${hue} 45% 11%)`];
-}
-function applyTint(e) {
-  const t = tintOf(e), root = document.documentElement.style;
-  if (t) { root.setProperty("--tint", t[0]); root.setProperty("--tint-ink", t[1]); }
-  else { root.removeProperty("--tint"); root.removeProperty("--tint-ink"); }
 }
 
 // ---------- library ----------
@@ -609,7 +594,7 @@ function tileHtml(e, sel) {
   </button>`;
 }
 
-// The sidebar: the picked wallpaper large, its details, and everything that can be done with it.
+// The inspector on the right: the picked wallpaper large, what can be done with it, then its details.
 function sideHtml(e) {
   const live = liveOn(e.id);
   const displays = S.state.displays;
@@ -628,74 +613,94 @@ function sideHtml(e) {
   const canPreview = e.kind === "video" && !cantPlayHere(e);
   const previewing = canPreview && S.preview === e.id;
   const multi = displays.length > 1;
+  const playTitle = previewing ? tr("Stop preview") : tr("Preview");
 
   return `<aside class="side" data-key="side">
     <div class="side-scroll">
       <div class="side-media" data-key="sm-${e.id}">
         ${src ? `<img src="${esc(src)}" draggable="false" onerror="this.remove()">` : placeholder(e)}
         ${previewing ? `<video data-key="sv-${e.id}-${S.videoViaLoopback ? "l" : "m"}" src="${esc(videoUrl(`${e.id}/${e.file}`))}" autoplay muted loop playsinline onerror="mediaVideoFailed()"></video>` : ""}
-        ${canPreview ? `<button class="btn sm round press side-play ${previewing ? "on" : ""}" data-act="preview" data-id="${e.id}" title="${esc(previewing ? tr("Stop preview") : tr("Preview"))}" aria-label="${esc(previewing ? tr("Stop preview") : tr("Preview"))}">${previewing ? ICON.stop : ICON.play}</button>` : ""}
+        ${canPreview ? `<button class="btn sm icon press side-play" data-act="preview" data-id="${e.id}" title="${esc(playTitle)}" aria-label="${esc(playTitle)}">${previewing ? ICON.stop : ICON.play}</button>` : ""}
       </div>
-      <div class="kick">${live.length
+      <div class="side-status">${live.length
         ? `<span class="dot ${live[0].status}"></span>${esc(spanned() === e.id ? tr("Spanning all displays") : tr("Showing on {names}", { names: live.map((d) => d.name).join(", ") }))}`
-        : `${ICON.library}${tr("In your library")}`}</div>
+        : `<span class="dot"></span>${tr("Not on a display")}`}</div>
       <input class="name-in" data-id="${e.id}" data-orig="${esc(e.name)}" value="${esc(e.name)}" spellcheck="false" title="${esc(tr("Rename"))}">
       ${cantPlayHere(e) ? `<div class="warn">${tr("Windows can't play {codec} video. Convert it to H.264 (HandBrake works) and add that instead.", { codec: codecName(e.codec) })}</div>` : ""}
-      <button class="btn pri big press side-set" data-act="setAll" data-id="${e.id}">${ICON.play}${multi ? tr("Set on all displays") : tr("Set as wallpaper")}</button>
-      ${multi ? `<div class="side-label">${tr("Or only on")}</div>
-        <div class="side-where">${displays.map((d) => `<button class="press ${d.item === e.id && !spanned() ? "on" : ""}" data-act="setOn" data-id="${e.id}" data-display="${esc(d.key)}" title="${esc(tr("Only {name}", { name: d.name }))}">${esc(d.name)}</button>`).join("")}
-          <button class="press ${spanned() === e.id ? "on" : ""}" data-act="setSpan" data-id="${e.id}" title="${esc(tr("One wallpaper stretched across all your displays"))}">${tr("Span all displays")}</button></div>` : ""}
-      <div class="side-rows">
-        <div class="set-row"><div class="what">${tr("In rotation")}<div class="hint">${tr("Rotation picks from these. Set the timer in Settings.")}</div></div>
-          <button class="sw press ${rot ? "on" : ""}" data-act="rotation" data-id="${e.id}" role="switch" aria-checked="${rot}"></button></div>
+      <div class="side-acts">
+        <button class="btn pri lg block press" data-act="setAll" data-id="${e.id}">${ICON.play}${multi ? tr("Set on all displays") : tr("Set as wallpaper")}</button>
+        ${multi ? `<div class="where">${displays.map((d) => `<button class="btn sm press ${d.item === e.id && !spanned() ? "on" : ""}" data-act="setOn" data-id="${e.id}" data-display="${esc(d.key)}" title="${esc(tr("Only {name}", { name: d.name }))}">${esc(d.name)}</button>`).join("")}
+          <button class="btn sm press ${spanned() === e.id ? "on" : ""}" data-act="setSpan" data-id="${e.id}" title="${esc(tr("One wallpaper stretched across all your displays"))}">${tr("Span all displays")}</button></div>` : ""}
       </div>
-      <dl class="facts">${facts.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>
+      <div class="group">
+        <div class="card"><div class="row"><div class="what">${tr("In rotation")}<div class="hint">${tr("Rotation picks from these. Set the timer in Settings.")}</div></div>
+          <button class="sw press ${rot ? "on" : ""}" data-act="rotation" data-id="${e.id}" role="switch" aria-checked="${rot}" aria-label="${esc(tr("In rotation"))}"></button></div></div>
+      </div>
+      <div class="group">
+        <div class="group-label">${tr("Details")}</div>
+        <div class="card"><dl class="facts">${facts.map(([k, v]) => `<dt>${esc(k)}</dt><dd title="${esc(v)}">${esc(v)}</dd>`).join("")}</dl></div>
+      </div>
       <div class="side-foot">
-        <button class="btn sm danger press" data-act="remove" data-id="${e.id}">${ICON.trash}${tr("Remove from the library")}</button>
+        <button class="btn sm ghost danger press" data-act="remove" data-id="${e.id}">${ICON.trash}${tr("Remove from the library")}</button>
       </div>
     </div>
   </aside>`;
 }
 
-// The sidebar in select mode: what's ticked, and what can be done to all of it at once.
+// The inspector in select mode: what's ticked, and what can be done to all of it at once.
 function pickSideHtml() {
   const byId = new Map(entries().map((e) => [e.id, e]));
   const ids = pickedIds();
   const items = ids.map((id) => byId.get(id));
   const size = items.reduce((n, e) => n + e.size, 0);
   const inRot = items.filter((e) => inRotation(e.id)).length;
-  const stack = items.slice(0, 3);
   const none = !ids.length;
-  return `<aside class="side picking" data-key="side-pick">
+  const stack = items.slice(0, 3);
+  return `<aside class="side" data-key="side-pick">
     <div class="side-scroll">
       <div class="side-media stack" data-key="sp-stack">${stack.length
         ? stack.map((e, k) => { const t = thumbUrl(e); return `<div class="stack-card s${k}" data-key="sc-${e.id}">${t ? `<img src="${esc(t)}" draggable="false" onerror="this.remove()">` : placeholder(e)}</div>`; }).reverse().join("")
         : `<div class="stack-empty">${ICON.check}</div>`}</div>
       <div class="side-title">${none ? tr("Select wallpapers") : esc(tr("{n} selected", { n: ids.length }))}</div>
-      <div class="hint">${none ? tr("Click wallpapers to tick them. Shift-click picks a range, Ctrl+A picks everything shown.") : esc(`${fmtSize(size)}${inRot ? ` · ${tr("{n} in rotation", { n: inRot })}` : ""}`)}</div>
+      <div class="hint">${none ? tr("Click wallpapers to tick them.") : esc(`${fmtSize(size)}${inRot ? ` · ${tr("{n} in rotation", { n: inRot })}` : ""}`)}</div>
       <div class="side-btns">
         <button class="btn sm press" data-act="pickAll">${tr("Select all")}</button>
         <button class="btn sm press" data-act="pickNone" ${none ? "disabled" : ""}>${tr("Select none")}</button>
       </div>
-      <div class="side-btns col">
-        <button class="btn press" data-act="pickRotation" data-on="1" ${none || inRot === ids.length ? "disabled" : ""}>${ICON.cycle}${tr("Add to rotation")}</button>
-        <button class="btn press" data-act="pickRotation" data-on="0" ${!inRot ? "disabled" : ""}>${tr("Take out of rotation")}</button>
-        <button class="btn danger press" data-act="pickDelete" ${none ? "disabled" : ""}>${ICON.trash}${none ? tr("Delete") : tr("Delete {n}", { n: ids.length })}</button>
+      <div class="side-acts">
+        <button class="btn block press" data-act="pickRotation" data-on="1" ${none || inRot === ids.length ? "disabled" : ""}>${ICON.cycle}${tr("Add to rotation")}</button>
+        <button class="btn block press" data-act="pickRotation" data-on="0" ${!inRot ? "disabled" : ""}>${tr("Take out of rotation")}</button>
+        <button class="btn block danger press" data-act="pickDelete" ${none ? "disabled" : ""}>${ICON.trash}${none ? tr("Delete") : tr("Delete {n}", { n: ids.length })}</button>
+      </div>
+      <div class="group">
+        <div class="group-label">${tr("Shortcuts")}</div>
+        <div class="card keys">
+          <div><span>${tr("Pick a range")}</span><kbd>Shift</kbd><kbd>${tr("Click")}</kbd></div>
+          <div><span>${tr("Pick everything shown")}</span><kbd>Ctrl</kbd><kbd>A</kbd></div>
+          <div><span>${tr("Delete")}</span><kbd>Del</kbd></div>
+          <div><span>${tr("Done")}</span><kbd>Esc</kbd></div>
+        </div>
       </div>
     </div>
   </aside>`;
 }
 
+const MARK = document.querySelector(".brand .mark")?.outerHTML ?? "";
+
 function renderLibrary() {
   const all = entries();
+  const head = (extra = "") => `<header class="top" data-tauri-drag-region><h1 data-tauri-drag-region>${tr("Library")}${all.length ? `<span class="count tnum">${all.length}</span>` : ""}</h1>
+      <span class="sp" data-tauri-drag-region></span>${extra}
+      <button class="btn sm icon press" data-act="pick" data-folder="1" title="${esc(tr("Add HTML folder"))}" aria-label="${esc(tr("Add HTML folder"))}">${ICON.folder}</button>
+      <button class="btn sm pri press" data-act="pick" data-folder="0">${ICON.plus}${tr("Add files")}</button></header>`;
   if (!all.length) {
-    return `<div class="page" data-key="p-library-empty">
-      <section class="hero welcome"><div class="hero-info">
-        <div class="hero-title">${tr("Your library is empty")}</div>
+    return `<div class="page" data-key="p-library-empty">${head()}
+      <div class="welcome"><div class="drop-zone">${MARK}
+        <h2>${tr("Your library is empty")}</h2>
         <p>${tr("Drop videos (MP4, WebM, MOV), images, GIFs or HTML wallpapers anywhere in this window.")}</p>
-        <div class="hero-acts"><button class="btn pri big press" data-act="pick" data-folder="0">${ICON.plus}${tr("Add files")}</button>
-          <button class="btn big press" data-act="pick" data-folder="1">${ICON.folder}${tr("Add an HTML folder")}</button></div>
-      </div></section></div>`;
+        <div class="acts"><button class="btn pri press" data-act="pick" data-folder="0">${ICON.plus}${tr("Add files")}</button>
+          <button class="btn press" data-act="tab" data-tab="workshop">${ICON.workshop}${tr("Browse the Workshop")}</button></div>
+      </div></div></div>`;
   }
   // Deleted wallpapers drop out of the selection.
   for (const id of S.picked) if (!all.some((e) => e.id === id)) S.picked.delete(id);
@@ -705,19 +710,17 @@ function renderLibrary() {
     .map(([k, [f, label]]) => [k, label, all.filter(f).length])
     .filter(([k, , n]) => k === "all" || k === S.filter || n);
 
-  return `<div class="page lib" data-key="p-library">
-    <section class="shelf">
-      <div class="bar">
-        ${chips.map(([k, label, n]) => `<button class="chip press ${S.filter === k ? "on" : ""}" data-act="filter" data-f="${k}">${tr(label)}<span class="n tnum">${n}</span></button>`).join("")}
-        <span class="sp"></span>
-        <label class="search">${ICON.search}<input id="search" placeholder="${esc(tr("Search"))}" value="${esc(S.query)}" spellcheck="false"></label>
-        <button class="btn sm press ${S.picking ? "on" : ""}" data-act="pickMode" title="${esc(tr("Select several wallpapers to delete them or change their rotation together"))}">${ICON.check}${S.picking ? tr("Done") : tr("Select")}</button>
-        <button class="btn sm press" data-act="pick" data-folder="0">${ICON.plus}${tr("Add files")}</button>
-        <button class="btn sm round press" data-act="pick" data-folder="1" title="${esc(tr("Add HTML folder"))}" aria-label="${esc(tr("Add HTML folder"))}">${ICON.folder}</button>
-      </div>
-      <div class="grid-wrap ${S.picking ? "picking" : ""}">${shown.length ? `<div class="grid">${shown.map((e) => tileHtml(e, e.id === hero.id)).join("")}</div>` : `<div class="empty">${tr("Nothing matches.")}</div>`}</div>
-    </section>
-    ${S.picking ? pickSideHtml() : sideHtml(hero)}
+  return `<div class="page" data-key="p-library">
+    ${head(`<label class="search">${ICON.search}<input id="search" placeholder="${esc(tr("Search"))}" value="${esc(S.query)}" spellcheck="false"></label>
+      <button class="btn sm press ${S.picking ? "on" : ""}" data-act="pickMode" title="${esc(tr("Select several wallpapers to delete them or change their rotation together"))}">${ICON.check}${S.picking ? tr("Done") : tr("Select")}</button>`)}
+    <div class="body">
+      <section class="page">
+        <div class="sub-bar"><div class="seg">${chips.map(([k, label, n]) => `<button class="press ${S.filter === k ? "on" : ""}" data-act="filter" data-v="${k}">${tr(label)} <span class="muted tnum">${n}</span></button>`).join("")}</div></div>
+        <div class="grid-wrap ${S.picking ? "picking" : ""}">${shown.length ? `<div class="grid">${shown.map((e) => tileHtml(e, e.id === hero.id)).join("")}</div>`
+          : `<div class="empty"><div class="em-ico">${ICON.search}</div><h2>${tr("Nothing matches.")}</h2></div>`}</div>
+      </section>
+      ${S.picking ? pickSideHtml() : sideHtml(hero)}
+    </div>
   </div>`;
 }
 
@@ -797,32 +800,33 @@ function wsTileHtml(i, sel) {
 // What the grid area says when there's nothing to show yet.
 function wsEmptyHtml() {
   const w = S.ws;
-  if (w.error) return `<div class="empty"><h2>${tr("Couldn't reach Steam")}</h2>${esc(w.error)}
+  if (w.error) return `<div class="empty"><div class="em-ico">${ICON.workshop}</div><h2>${tr("Couldn't reach Steam")}</h2><p>${esc(w.error)}</p>
     <div class="acts"><button class="btn pri press" data-act="wsRetry">${tr("Try again")}</button></div></div>`;
-  return `<div class="empty">${w.items ? (w.view === "discover" ? tr("Nothing matches.") : tr("Steam hasn't downloaded any wallpapers for Wallpaper Engine.")) : tr("Loading…")}</div>`;
+  if (!w.items) return `<div class="empty"><p>${tr("Loading…")}</p></div>`;
+  return `<div class="empty"><div class="em-ico">${w.view === "discover" ? ICON.search : ICON.download}</div>
+    <h2>${w.view === "discover" ? tr("Nothing matches.") : tr("Steam hasn't downloaded any wallpapers for Wallpaper Engine.")}</h2></div>`;
 }
 
-// Clicking a tile opens this popup: the whole preview, uncropped, with the details and actions under it.
+// Clicking a tile opens this dialog: the whole preview, uncropped, with the details and actions under it.
 // The tile's small image sits underneath so something shows while the large one loads.
 function wsModalHtml(i) {
   const w = S.ws;
   const lib = wsLib(i.id);
   const pending = wsPending(i.id);
-  const icon = (title, act, svg, extra = "") => `<button class="btn round press" data-act="${act}" data-id="${i.id}" ${extra} title="${esc(title)}" aria-label="${esc(title)}">${svg}</button>`;
+  const icon = (title, act, svg, extra = "") => `<button class="btn icon ghost press" data-act="${act}" data-id="${i.id}" ${extra} title="${esc(title)}" aria-label="${esc(title)}">${svg}</button>`;
   let acts;
-  if (lib) acts = `<button class="btn pri big press" data-act="wsShow" data-item="${lib}">${ICON.library}${tr("Show in the library")}</button>`;
-  else if (w.view === "steam") acts = `<button class="btn pri big press" data-act="wsAdd" data-id="${i.id}">${ICON.plus}${tr("Add to library")}</button>`;
-  else if (pending) acts = `<button class="btn pri big press" disabled>${ICON.download}${esc(wsWaiting(i.id))}</button>
-      <button class="btn big press" data-act="wsOpenSteam" data-id="${i.id}">${tr("Open in Steam")}</button>`;
-  else acts = `<button class="btn pri big press" data-act="wsSubscribe" data-id="${i.id}">${ICON.download}${tr("Download")}</button>`;
-  if (!lib && w.view !== "steam") acts += `<button class="btn big press" data-act="wsAdd" data-id="${i.id}">${tr("Already downloaded? Add it now")}</button>`;
+  if (lib) acts = `<button class="btn pri press" data-act="wsShow" data-item="${lib}">${ICON.library}${tr("Show in the library")}</button>`;
+  else if (w.view === "steam") acts = `<button class="btn pri press" data-act="wsAdd" data-id="${i.id}">${ICON.plus}${tr("Add to library")}</button>`;
+  else if (pending) acts = `<button class="btn pri press" disabled>${ICON.download}${esc(wsWaiting(i.id))}</button>
+      <button class="btn press" data-act="wsOpenSteam" data-id="${i.id}">${tr("Open in Steam")}</button>`;
+  else acts = `<button class="btn pri press" data-act="wsSubscribe" data-id="${i.id}">${ICON.download}${tr("Download")}</button>`;
+  if (!lib && w.view !== "steam") acts += `<button class="btn press" data-act="wsAdd" data-id="${i.id}">${tr("Already downloaded? Add it now")}</button>`;
   const meta = [
-    i.kind === "web" ? tr("HTML page") : wsKindLabel(i),
     i.resolution ? `${i.resolution}${wsRes(i) ? ` · ${wsRes(i)}` : ""}` : null,
     i.size ? fmtSize(i.size) : null,
     tr("{n} subscribers", { n: i.subscriptions.toLocaleString() }),
   ].filter(Boolean).join("  ·  ");
-  const kick = lib ? tr("In your library") : pending ? wsWaiting(i.id) : i.genres.map(tr).join(", ");
+  const badges = [i.kind === "web" ? tr("HTML page") : wsKindLabel(i), ...i.genres.map(tr)];
   const desc = i.description.replace(/\[[^\]]*\]/g, "").trim();
   return `<div class="modal" data-key="ws-modal">
     <div class="scrim" data-act="wsClose"></div>
@@ -831,19 +835,19 @@ function wsModalHtml(i) {
         ${i.preview ? `<img class="lo" src="${esc(wsThumb(i.preview))}" draggable="false" onerror="this.remove()">
           <img class="hi" src="${esc(wsThumb(i.preview, 1920))}" draggable="false" onerror="this.remove()">`
           : `<div class="ph ${i.kind}"><span>${i.kind === "web" ? "&lt;/&gt;" : esc(wsKindLabel(i))}</span></div>`}
-        <button class="btn round press dlg-x" data-act="wsClose" title="${esc(tr("Close"))}" aria-label="${esc(tr("Close"))}">${ICON.close}</button>
+        <button class="btn sm icon press dlg-x" data-act="wsClose" title="${esc(tr("Close"))}" aria-label="${esc(tr("Close"))}">${ICON.close}</button>
       </div>
       <div class="dlg-info">
-        <div class="kick">${lib || pending ? `<span class="dot ${lib ? "playing" : "paused"}"></span>` : ""}${esc(kick)}</div>
-        <div class="hero-title" title="${esc(i.title)}">${esc(i.title)}</div>
-        <div class="hero-meta">${esc(meta)}</div>
+        <div class="badges">${lib || pending ? `<span class="badge"><span class="dot ${lib ? "playing" : "paused"}"></span>${esc(lib ? tr("In your library") : wsWaiting(i.id))}</span>` : ""}${badges.map((b) => `<span class="badge">${esc(b)}</span>`).join("")}</div>
+        <div class="dlg-title" title="${esc(i.title)}">${esc(i.title)}</div>
+        <div class="dlg-meta">${esc(meta)}</div>
         ${desc ? `<div class="dlg-desc">${esc(desc)}</div>` : ""}
-        <div class="hero-acts">${acts}
-          <span class="sp"></span>
-          ${icon(tr("Open the workshop page"), "wsOpen", ICON.external)}
-          ${icon(tr("Hide this wallpaper"), "wsHide", ICON.hide)}
-          ${i.creator ? icon(tr("Hide everything by this creator"), "wsHide", ICON.hideUser, `data-creator="${esc(i.creator)}"`) : ""}
-        </div>
+      </div>
+      <div class="dlg-foot">${acts}
+        <span class="sp"></span>
+        ${icon(tr("Open the workshop page"), "wsOpen", ICON.external)}
+        ${icon(tr("Hide this wallpaper"), "wsHide", ICON.hide)}
+        ${i.creator ? icon(tr("Hide everything by this creator"), "wsHide", ICON.hideUser, `data-creator="${esc(i.creator)}"`) : ""}
       </div>
     </div>
   </div>`;
@@ -857,6 +861,7 @@ function renderWorkshop() {
   const views = [["discover", tr("Discover")], ["steam", tr("Downloaded in Steam")]];
   const genres = [["", tr("All genres")], ...S.state.workshop.genres.map((g) => [g, tr(g)])];
   const sorts = [["week", tr("Trending")], ["month", tr("Top this month")], ["year", tr("Top this year")], ["allTime", tr("Most subscribed")], ["newest", tr("Newest")]];
+  const select = (id, cur, opts) => `<select id="${id}" class="select">${opts.map(([v, t]) => `<option value="${esc(v)}" ${cur === v ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`;
 
   const grid = items.length
     ? `<div class="grid">${items.map((i) => wsTileHtml(i, i.id === sel?.id)).join("")}</div>
@@ -866,20 +871,18 @@ function renderWorkshop() {
     `<div class="warn ws-warn">${tr("Steam's Wallpaper Engine folder wasn't found. You can browse, but subscribing only downloads anything if Steam is installed and you own Wallpaper Engine (it has to stay installed; it doesn't have to run).")}</div>`;
 
   return `<div class="page" data-key="p-workshop">
-    <header class="head"><h1>${tr("Workshop")}</h1>
-      <p>${tr("Wallpapers from the Wallpaper Engine Steam Workshop. Click one to preview it.")}</p></header>
-    <section class="shelf">
-      <div class="bar">
-        ${views.map(([k, t]) => `<button class="chip press ${w.view === k ? "on" : ""}" data-act="wsView" data-v="${k}">${t}</button>`).join("")}
-        <span class="sp"></span>
-        ${discover ? `<label class="search">${ICON.search}<input id="ws-search" placeholder="${esc(tr("Search, then Enter"))}" value="${esc(w.search)}" spellcheck="false"></label>
-        <select id="ws-genre" class="select">${genres.map(([v, t]) => `<option value="${esc(v)}" ${w.genre === v ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>` : ""}
-      </div>
-      ${discover ? `<div class="bar sub">${sorts.map(([v, t]) => `<button class="chip press ${w.sort === v ? "on" : ""}" data-act="wsSort" data-v="${v}">${t}</button>`).join("")}
-        <span class="sp"></span>${seg("wsKind", w.kind, [["all", tr("All")], ["scene", tr("Scene")], ["video", tr("Video")], ["web", "HTML"]])}</div>` : ""}
-      ${note}
-      <div class="grid-wrap">${grid}</div>
-    </section>
+    <header class="top" data-tauri-drag-region><h1 data-tauri-drag-region>${tr("Workshop")}</h1>
+      <span class="sp" data-tauri-drag-region></span>
+      ${discover ? `<label class="search">${ICON.search}<input id="ws-search" placeholder="${esc(tr("Search, then Enter"))}" value="${esc(w.search)}" spellcheck="false"></label>` : ""}
+    </header>
+    <div class="sub-bar">
+      ${seg("wsView", w.view, views)}
+      <span class="sp"></span>
+      ${discover ? `${seg("wsKind", w.kind, [["all", tr("All")], ["scene", tr("Scene")], ["video", tr("Video")], ["web", "HTML"]])}
+        ${select("ws-sort", w.sort, sorts)}${select("ws-genre", w.genre, genres)}` : ""}
+    </div>
+    ${note}
+    <div class="grid-wrap">${grid}</div>
     ${sel && w.open ? wsModalHtml(sel) : ""}
   </div>`;
 }
@@ -902,18 +905,14 @@ function renderDisplays() {
         ${art}<span class="pill"><span class="dot ${d.status}"></span>${esc(d.name)}${d.primary ? ` · ${tr("main")}` : ""}</span></div>`;
     }).join("")}</div>`;
   }
-  const status = (d) =>
-    d.status === "playing" ? tr("Playing")
-    : d.status === "paused" ? tr(REASON[d.reason] ?? "Paused")
-    : d.status === "image" ? tr("Still image (set as the system wallpaper)")
-    : tr("Nothing set");
   const drow = (d, title, sub, clearAttr) => {
     const e = d.item && byId.get(d.item);
     const t = e && thumbUrl(e);
-    return `<div class="drow">
-      <div><h3>${esc(title)}</h3><div class="sub">${sub}</div></div>
-      <div class="now">${e ? (t ? `<img src="${esc(t)}" draggable="false">` : placeholder(e)) : ""}<div class="what"><div>${e ? esc(e.name) : ""}</div><div class="hint">${esc(status(d))}</div></div></div>
-      <div>${d.item ? `<button class="btn sm press" data-act="clearDisplay" ${clearAttr}>${tr("Clear")}</button>` : ""}</div>
+    return `<div class="set-row">
+      <div class="what" style="flex:0 0 190px">${esc(title)}<div class="hint">${sub}</div></div>
+      <div class="now"><span class="art">${t ? `<img src="${esc(t)}" draggable="false">` : e ? placeholder(e) : ""}</span>
+        <div class="what"><div>${e ? esc(e.name) : `<span class="muted">${tr("Nothing set")}</span>`}</div><div class="hint">${e ? esc(statusText(d)) : ""}</div></div></div>
+      ${d.item ? `<button class="btn sm press" data-act="clearDisplay" ${clearAttr}>${tr("Clear")}</button>` : ""}
     </div>`;
   };
   // A spanned wallpaper is one thing on every display, so it gets one row and Clear takes it off all of them.
@@ -921,9 +920,13 @@ function renderDisplays() {
     ? drow(ds[0], tr("All displays"), esc(tr("{n} displays", { n: ds.length })), "")
     : ds.map((d) => drow(d, d.name, `${d.width}×${d.height}${d.scale !== 1 ? ` · ${Math.round(d.scale * 100)}%` : ""}${d.primary ? ` · ${tr("main display")}` : ""}`, `data-display="${esc(d.key)}"`)).join("");
   return `<div class="page" data-key="p-displays">
-    <header class="head"><h1>${tr("Displays")}</h1>
-      <p>${tr("Choose wallpapers in the Library. Still images are handed to {os} as the normal wallpaper, so they cost nothing to show. Videos and HTML play behind your desktop icons and pause when they're covered.", { os: "Windows" })}</p></header>
-    <div class="scroll">${map}${rows || `<div class="muted">${tr("No displays found.")}</div>`}</div>
+    <header class="top" data-tauri-drag-region><h1 data-tauri-drag-region>${tr("Displays")}</h1><span class="sp" data-tauri-drag-region></span>
+      ${S.state.items.length ? `<button class="btn sm press" data-act="next">${ICON.cycle}${tr("Next wallpaper")}</button>` : ""}</header>
+    <div class="scroll"><div class="col">
+      <p class="lede">${tr("Choose wallpapers in the Library. Still images are handed to {os} as the normal wallpaper, so they cost nothing to show. Videos and HTML play behind your desktop icons and pause when they're covered.", { os: "Windows" })}</p>
+      ${map}
+      ${rows ? `<div class="card">${rows}</div>` : `<div class="empty"><div class="em-ico">${ICON.monitor}</div><h2>${tr("No displays found.")}</h2></div>`}
+    </div></div>
   </div>`;
 }
 
@@ -934,7 +937,7 @@ function seg(act, cur, opts) {
 const offOn = (act, v) => `<button class="sw press ${v ? "on" : ""}" data-act="${act}" data-v="${v ? "0" : "1"}" role="switch" aria-checked="${!!v}"></button>`;
 const row = (what, hint, control) =>
   `<div class="set-row"><div class="what">${what}${hint ? `<div class="hint">${hint}</div>` : ""}</div>${control}</div>`;
-const section = (title, sub, rows) => `<div class="sec"><div><h3>${title}</h3>${sub ? `<p>${sub}</p>` : ""}</div><div>${rows}</div></div>`;
+const section = (title, sub, rows) => `<div class="sec"><h3>${title}</h3>${sub ? `<p>${sub}</p>` : ""}<div class="card">${rows}</div></div>`;
 
 function renderSettings() {
   const c = S.state.config;
@@ -955,9 +958,9 @@ function renderSettings() {
     : `<button class="btn sm press" data-act="update" ${u?.checking ? "disabled" : ""}>${u?.checking ? tr("Checking…") : tr("Check now")}</button>`;
 
   return `<div class="page" data-key="p-settings">
-    <header class="head"><h1>${tr("Settings")}</h1>
-      <p>${tr("Backdrop {version}. Closing this window keeps wallpapers running; quit from the {tray} icon.", { version: esc(S.state.version), tray: trayName() })}</p></header>
-    <div class="scroll"><div class="secs">
+    <header class="top" data-tauri-drag-region><h1 data-tauri-drag-region>${tr("Settings")}</h1><span class="sp" data-tauri-drag-region></span></header>
+    <div class="scroll"><div class="col">
+    <p class="lede">${tr("Backdrop {version}. Closing this window keeps wallpapers running; quit from the {tray} icon.", { version: esc(S.state.version), tray: trayName() })}</p>
     ${section(tr("Playback"), "", [
       row(tr("Fit"), tr("How wallpapers that don't match the screen's shape are scaled."),
         seg("fit", c.fit, [["cover", tr("Fill")], ["contain", tr("Fit")], ["height", tr("Fit height")], ["stretch", tr("Stretch")], ["center", tr("Center")]])),
@@ -999,10 +1002,8 @@ function renderSettings() {
 
 function render() {
   if (!S.state) return;
-  renderTitle();
+  renderNav();
   const html = S.tab === "displays" ? renderDisplays() : S.tab === "settings" ? renderSettings() : S.tab === "workshop" ? renderWorkshop() : renderLibrary();
-  // Workshop art is remote (no canvas access), so it keeps the neutral accent.
-  applyTint(S.tab === "workshop" ? null : S.tab === "library" ? heroItem() : entries().find((e) => liveOn(e.id).length));
   morph($("#page"), html);
   syncScroll();
 }
