@@ -69,7 +69,8 @@ pub struct Query {
     pub sort: Sort,
     /// One of `GENRES`, or empty for all of them.
     pub genre: String,
-    pub kind: WsKind,
+    /// None for every kind Backdrop plays.
+    pub kind: Option<WsKind>,
     pub search: String,
     /// 1-based.
     pub page: u32,
@@ -158,7 +159,7 @@ pub fn browse_url(q: &Query) -> String {
     if let Some(d) = days {
         url += &format!("&days={d}");
     }
-    let mut required = vec![q.kind.tag(), "Everyone"];
+    let mut required: Vec<&str> = q.kind.map(WsKind::tag).into_iter().chain(["Everyone"]).collect();
     if GENRES.contains(&q.genre.as_str()) {
         required.push(&q.genre);
     }
@@ -621,12 +622,16 @@ mod tests {
 
     #[test]
     fn url_excludes_anime_and_asks_for_everyone() {
-        let q = Query { sort: Sort::Month, genre: "Sci-Fi".into(), search: "neon city".into(), page: 2, ..Default::default() };
+        let q = Query { sort: Sort::Month, genre: "Sci-Fi".into(), kind: Some(WsKind::Video), search: "neon city".into(), page: 2 };
         let url = browse_url(&q);
         for t in ["requiredtags%5B%5D=Video", "requiredtags%5B%5D=Everyone", "requiredtags%5B%5D=Sci-Fi", "excludedtags%5B%5D=Anime", "days=30", "p=2", "searchtext=neon%20city"] {
             assert!(url.contains(t), "{t} missing from {url}");
         }
         assert!(!browse_url(&Query { genre: "Anime".into(), ..Default::default() }).contains("requiredtags%5B%5D=Anime"));
+        // Without a kind every type comes back; `allowed` drops what Backdrop can't play.
+        let all = browse_url(&Query::default());
+        assert!(!["Video", "Web", "Scene"].iter().any(|t| all.contains(&format!("requiredtags%5B%5D={t}"))));
+        assert!(browse_url(&Query { kind: Some(WsKind::Scene), ..Default::default() }).contains("requiredtags%5B%5D=Scene"));
     }
 
     #[test]

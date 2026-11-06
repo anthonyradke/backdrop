@@ -410,7 +410,7 @@ pub fn run() {
             commands::pick_files,
             commands::save_thumb,
             commands::rename_item,
-            commands::delete_local,
+            commands::delete_items,
             commands::set_wallpaper,
             commands::cursor_position,
             commands::audio_spectrum,

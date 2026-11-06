@@ -12,15 +12,18 @@ const S = {
   tab: "library",
   filter: "all", // all | rotation
   query: "",
-  sel: null, // selected item id (the library's hero falls back to what's showing)
-  preview: null, // item id whose video plays in the hero
+  sel: null, // selected item id (the library's sidebar falls back to what's showing)
+  preview: null, // item id whose video plays in the sidebar
+  picking: false, // library select mode, for acting on many wallpapers at once
+  picked: new Set(), // ids ticked in select mode
+  anchor: null, // last tile clicked, where a shift-click range starts
   tint: {}, // id -> [accent, ink] sampled from its thumbnail, or null for grey art
   state: null, // StateView from Rust
   upd: null, // update::Status from Rust
   thumbVer: {}, // id -> cache buster after a new thumbnail
   videoViaLoopback: false,
   // Workshop tab. view: discover | steam (what Steam already downloaded)
-  ws: { view: "discover", sort: "week", genre: "", kind: "video", search: "", page: 1, items: null, more: false, loading: false, error: null, sel: null, open: false, seq: 0 },
+  ws: { view: "discover", sort: "week", genre: "", kind: "all", search: "", page: 1, items: null, more: false, loading: false, error: null, sel: null, open: false, seq: 0 },
 };
 
 // ---------- helpers ----------
@@ -71,6 +74,7 @@ const ICON = {
   hideUser: '<svg viewBox="0 0 16 16"><circle cx="6.5" cy="5.5" r="2.6"/><path d="M1.8 13.5c.5-2.4 2.4-3.8 4.7-3.8 1 0 1.9.3 2.6.8M10.5 10.5l3.5 3.5M14 10.5 10.5 14"/></svg>',
   close: '<svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
   update: '<svg viewBox="0 0 16 16"><path d="M13.2 8A5.2 5.2 0 1 1 11.6 4.3"/><path d="M12.2 1.9v2.8H9.4"/></svg>',
+  check: '<svg viewBox="0 0 16 16"><path d="m3.5 8.4 3 3 6-6.4"/></svg>',
   library: '<svg viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="4.6" height="4.6" rx="1.2"/><rect x="8.9" y="2.5" width="4.6" height="4.6" rx="1.2"/><rect x="2.5" y="8.9" width="4.6" height="4.6" rx="1.2"/><rect x="8.9" y="8.9" width="4.6" height="4.6" rx="1.2"/></svg>',
 };
 
@@ -151,7 +155,7 @@ function liveOn(id) {
 
 // ---------- thumbnails ----------
 // Thumbnails come from a frame the webview decodes here, so there's no ffmpeg to ship. The same
-// frame becomes poster.jpg, the 1280px still the library's hero shows instead of the full media.
+// frame becomes poster.jpg, the 1280px still the library's sidebar shows instead of the full media.
 
 const thumbQueue = new Set();
 let thumbBusy = false;
@@ -306,7 +310,27 @@ const actions = {
   wsShow: (el) => { S.ws.open = false; S.tab = "library"; S.filter = "all"; S.query = ""; S.sel = el.dataset.item; S.preview = null; render(); },
   filter: (el) => { S.filter = el.dataset.f; render(); },
   pick: async (el) => importResult(await call("pick_files", { folder: el.dataset.folder === "1" })),
-  select: (el) => { S.sel = el.dataset.id; S.preview = null; render(); },
+  select: (el, ev) => {
+    const id = el.dataset.id;
+    if (ev?.shiftKey && S.anchor) pickRange(S.anchor, id);
+    else if (S.picking || ev?.ctrlKey || ev?.metaKey) { S.picking = true; togglePick(id); S.anchor = id; }
+    else { S.sel = id; S.preview = null; S.anchor = id; }
+    render();
+  },
+  pickMode: () => { S.picking = !S.picking; S.picked.clear(); render(); },
+  pickAll: () => { for (const e of shownEntries()) S.picked.add(e.id); S.picking = true; render(); },
+  pickNone: () => { S.picked.clear(); render(); },
+  pickRotation: (el) => call("set_in_rotation", { ids: pickedIds(), on: el.dataset.on === "1" },
+    el.dataset.on === "1" ? tr("Added to rotation") : tr("Taken out of rotation")),
+  pickDelete: async () => {
+    const ids = pickedIds();
+    if (!ids.length || !confirm(tr("Delete {n} wallpapers from your library? Their files are deleted from the library folder.", { n: ids.length }))) return;
+    await call("delete_items", { ids }, tr("Deleted {n} wallpapers", { n: ids.length }));
+    S.picked.clear();
+    S.picking = false;
+    if (ids.includes(S.sel)) S.sel = null;
+    render();
+  },
   preview: (el) => { S.preview = S.preview === el.dataset.id ? null : el.dataset.id; render(); },
   setAll: async (el) => {
     await call("set_wallpaper", { id: el.dataset.id, display: null });
@@ -315,12 +339,12 @@ const actions = {
     await call("set_wallpaper", { id: el.dataset.id, display: el.dataset.display });
   },
   setSpan: (el) => call("span_wallpaper", { id: el.dataset.id }),
-  rotation: (el) => call("set_in_rotation", { id: el.dataset.id, on: !inRotation(el.dataset.id) }),
+  rotation: (el) => call("set_in_rotation", { ids: [el.dataset.id], on: !inRotation(el.dataset.id) }),
   next: () => call("next_wallpaper"),
   remove: async (el) => {
     const e = entries().find((x) => x.id === el.dataset.id);
     if (!e || !confirm(tr('Remove "{name}" from your library? The file is deleted from the library folder.', { name: e.name }))) return;
-    await call("delete_local", { id: e.id });
+    await call("delete_items", { ids: [e.id] });
     if (S.sel === e.id) S.sel = null;
   },
   clearDisplay: (el) => call("clear_wallpaper", { display: el.dataset.display ?? null }),
@@ -362,7 +386,7 @@ document.addEventListener("click", (ev) => {
   const el = ev.target.closest("[data-act]");
   if (!el || el.disabled) return;
   const fn = actions[el.dataset.act];
-  if (fn) Promise.resolve(fn(el)).catch(() => {});
+  if (fn) Promise.resolve(fn(el, ev)).catch(() => {});
 });
 
 document.addEventListener("change", (ev) => {
@@ -388,7 +412,12 @@ document.addEventListener("keydown", (ev) => {
   } else if (ev.key === "Escape" && S.tab === "workshop" && S.ws.open) {
     S.ws.open = false;
     render();
-  } else if (ev.key === "Escape" && S.sel) { S.sel = null; S.preview = null; render(); }
+  } else if (S.tab === "library" && !ev.target.closest?.("input")) {
+    if (ev.key === "Escape" && S.picking) { S.picking = false; S.picked.clear(); render(); }
+    else if (ev.key === "Escape" && S.sel) { S.sel = null; S.preview = null; render(); }
+    else if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "a") { ev.preventDefault(); actions.pickAll(); }
+    else if (ev.key === "Delete" && !ev.repeat) actions[S.picking ? "pickDelete" : "remove"]({ dataset: { id: heroItem()?.id } }).catch(() => {});
+  }
 });
 
 document.addEventListener("focusout", async (ev) => {
@@ -475,7 +504,7 @@ function placeholder(e, key = "") {
 }
 
 // ---------- tint ----------
-// The accent follows the wallpaper in the hero: one pass over a 32×18 copy of its thumbnail, weighted
+// The accent follows the wallpaper in the sidebar: one pass over a 32×18 copy of its thumbnail, weighted
 // toward saturated mid-tones, then pinned to a lightness that dark text reads on.
 
 const tintBusy = new Set();
@@ -523,7 +552,7 @@ function applyTint(e) {
 // ---------- library ----------
 
 const posterUrl = (e) => (e.poster ? mediaUrl(`${e.id}/poster.jpg`) + `?v=${S.thumbVer[e.id] ?? 0}` : thumbUrl(e));
-// What the hero shows: the pick, else what the main display is showing, else the newest.
+// What the sidebar shows: the pick, else what the main display is showing, else the newest.
 function heroItem() {
   const all = entries();
   const live = (S.state.displays.find((d) => d.primary && d.item) ?? S.state.displays.find((d) => d.item))?.item;
@@ -540,58 +569,121 @@ const FILTERS = {
   web: [(e) => e.kind === "web", "HTML"],
 };
 
+// What the grid shows with the current filter and search, in grid order.
+function shownEntries() {
+  const q = S.query.trim().toLowerCase();
+  const match = FILTERS[S.filter] ?? FILTERS.all;
+  return entries().filter((e) => match[0](e) && (!q || e.name.toLowerCase().includes(q)));
+}
+
+// ---------- selecting many ----------
+
+const pickedIds = () => entries().map((e) => e.id).filter((id) => S.picked.has(id));
+function togglePick(id) {
+  if (S.picked.has(id)) S.picked.delete(id);
+  else S.picked.add(id);
+}
+// Shift-click: everything between the last tile clicked and this one, as the grid shows them.
+function pickRange(from, to) {
+  const ids = shownEntries().map((e) => e.id);
+  const a = ids.indexOf(from), b = ids.indexOf(to);
+  if (a < 0 || b < 0) return togglePick(to);
+  S.picking = true;
+  for (const id of ids.slice(Math.min(a, b), Math.max(a, b) + 1)) S.picked.add(id);
+}
+
 function tileHtml(e, sel) {
   const t = thumbUrl(e);
   const live = liveOn(e.id);
   const res = resLabel(e);
-  return `<button class="tile ${sel ? "sel" : ""}" data-act="select" data-id="${e.id}" data-key="t-${e.id}">
+  const picked = S.picking && S.picked.has(e.id);
+  return `<button class="tile ${sel && !S.picking ? "sel" : ""} ${picked ? "picked" : ""}" data-act="select" data-id="${e.id}" data-key="t-${e.id}" ${S.picking ? `aria-pressed="${picked}"` : ""}>
     <div class="thumb">
       ${t ? `<img src="${esc(t)}" loading="lazy" draggable="false" onerror="this.remove()">` : placeholder(e)}
       ${live.length ? `<span class="pill tl"><span class="dot ${live[0].status}"></span>${live.length > 1 ? esc(tr("{n} displays", { n: live.length })) : esc(live[0].name)}</span>` : ""}
       ${res ? `<span class="pill br">${res}</span>` : ""}
+      ${S.picking ? `<span class="check">${ICON.check}</span>` : ""}
     </div>
     <div class="t-name">${esc(e.name)}</div>
     <div class="t-meta">${inRotation(e.id) ? `<span title="${esc(tr("In rotation"))}">${ICON.cycle}</span>` : ""}<span>${esc(kindLabel(e))} · ${fmtSize(e.size)}</span></div>
   </button>`;
 }
 
-function heroHtml(e) {
+// The sidebar: the picked wallpaper large, its details, and everything that can be done with it.
+function sideHtml(e) {
   const live = liveOn(e.id);
   const displays = S.state.displays;
   const rot = inRotation(e.id);
   const src = posterUrl(e);
   const type = e.kind === "web" ? tr("HTML page") : e.kind === "scene" ? tr("Scene") : kindLabel(e) === "GIF" ? tr("Animated GIF") : e.kind === "video" ? tr("Video") : tr("Image");
-  const meta = [
-    type,
-    e.width ? `${e.width} × ${e.height}${resLabel(e) ? ` · ${resLabel(e)}` : ""}` : null,
-    e.codec ? codecName(e.codec) : null,
-    e.fps ? `${Math.round(e.fps * 100) / 100} fps` : null,
-    fmtSize(e.size),
-    `${tr("Added")} ${fmtDate(e.added)}`,
-  ].filter(Boolean).join("  ·  ");
+  const facts = [
+    [tr("Type"), type],
+    e.width ? [tr("Resolution"), `${e.width} × ${e.height}${resLabel(e) ? ` · ${resLabel(e)}` : ""}`] : null,
+    e.codec ? [tr("Codec"), codecName(e.codec)] : null,
+    e.fps ? [tr("Frame rate"), `${Math.round(e.fps * 100) / 100} fps`] : null,
+    [tr("Size"), fmtSize(e.size)],
+    [tr("Added"), fmtDate(e.added)],
+    e.workshop ? [tr("Source"), tr("Steam Workshop")] : null,
+  ].filter(Boolean);
   const canPreview = e.kind === "video" && !cantPlayHere(e);
   const previewing = canPreview && S.preview === e.id;
-  const icon = (title, act, svg, extra = "") => `<button class="btn round press ${extra}" data-act="${act}" data-id="${e.id}" title="${esc(title)}" aria-label="${esc(title)}">${svg}</button>`;
+  const multi = displays.length > 1;
 
-  return `<section class="hero" data-key="hero">
-    ${src ? `<img class="hero-img" data-key="hi-${e.id}" src="${esc(src)}" draggable="false" onerror="this.remove()">` : placeholder(e, `hp-${e.id}`)}
-    ${previewing ? `<video class="hero-video" data-key="hv-${e.id}-${S.videoViaLoopback ? "l" : "m"}" src="${esc(videoUrl(`${e.id}/${e.file}`))}" autoplay muted loop playsinline onerror="mediaVideoFailed()"></video>` : ""}
-    <div class="hero-info" data-key="hn-${e.id}">
+  return `<aside class="side" data-key="side">
+    <div class="side-scroll">
+      <div class="side-media" data-key="sm-${e.id}">
+        ${src ? `<img src="${esc(src)}" draggable="false" onerror="this.remove()">` : placeholder(e)}
+        ${previewing ? `<video data-key="sv-${e.id}-${S.videoViaLoopback ? "l" : "m"}" src="${esc(videoUrl(`${e.id}/${e.file}`))}" autoplay muted loop playsinline onerror="mediaVideoFailed()"></video>` : ""}
+        ${canPreview ? `<button class="btn sm round press side-play ${previewing ? "on" : ""}" data-act="preview" data-id="${e.id}" title="${esc(previewing ? tr("Stop preview") : tr("Preview"))}" aria-label="${esc(previewing ? tr("Stop preview") : tr("Preview"))}">${previewing ? ICON.stop : ICON.play}</button>` : ""}
+      </div>
       <div class="kick">${live.length
         ? `<span class="dot ${live[0].status}"></span>${esc(spanned() === e.id ? tr("Spanning all displays") : tr("Showing on {names}", { names: live.map((d) => d.name).join(", ") }))}`
         : `${ICON.library}${tr("In your library")}`}</div>
       <input class="name-in" data-id="${e.id}" data-orig="${esc(e.name)}" value="${esc(e.name)}" spellcheck="false" title="${esc(tr("Rename"))}">
-      <div class="hero-meta">${esc(meta)}</div>
       ${cantPlayHere(e) ? `<div class="warn">${tr("Windows can't play {codec} video. Convert it to H.264 (HandBrake works) and add that instead.", { codec: codecName(e.codec) })}</div>` : ""}
-      <div class="hero-acts">
-        <button class="btn pri big press" data-act="setAll" data-id="${e.id}">${ICON.play}${displays.length > 1 ? tr("Set on all displays") : tr("Set as wallpaper")}</button>
-        ${displays.length > 1 ? `<div class="where">${displays.map((d) => `<button class="press ${d.item === e.id && !spanned() ? "on" : ""}" data-act="setOn" data-id="${e.id}" data-display="${esc(d.key)}" title="${esc(tr("Only {name}", { name: d.name }))}">${esc(d.name)}</button>`).join("")}<button class="press ${spanned() === e.id ? "on" : ""}" data-act="setSpan" data-id="${e.id}" title="${esc(tr("One wallpaper stretched across all your displays"))}">${tr("Span all displays")}</button></div>` : ""}
-        ${canPreview ? icon(previewing ? tr("Stop preview") : tr("Preview"), "preview", previewing ? ICON.stop : ICON.play, previewing ? "on" : "") : ""}
-        ${icon(rot ? tr("In rotation (click to remove)") : tr("Add to rotation"), "rotation", ICON.cycle, rot ? "on" : "")}
-        ${icon(tr("Remove from the library"), "remove", ICON.trash)}
+      <button class="btn pri big press side-set" data-act="setAll" data-id="${e.id}">${ICON.play}${multi ? tr("Set on all displays") : tr("Set as wallpaper")}</button>
+      ${multi ? `<div class="side-label">${tr("Or only on")}</div>
+        <div class="side-where">${displays.map((d) => `<button class="press ${d.item === e.id && !spanned() ? "on" : ""}" data-act="setOn" data-id="${e.id}" data-display="${esc(d.key)}" title="${esc(tr("Only {name}", { name: d.name }))}">${esc(d.name)}</button>`).join("")}
+          <button class="press ${spanned() === e.id ? "on" : ""}" data-act="setSpan" data-id="${e.id}" title="${esc(tr("One wallpaper stretched across all your displays"))}">${tr("Span all displays")}</button></div>` : ""}
+      <div class="side-rows">
+        <div class="set-row"><div class="what">${tr("In rotation")}<div class="hint">${tr("Rotation picks from these. Set the timer in Settings.")}</div></div>
+          <button class="sw press ${rot ? "on" : ""}" data-act="rotation" data-id="${e.id}" role="switch" aria-checked="${rot}"></button></div>
+      </div>
+      <dl class="facts">${facts.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>
+      <div class="side-foot">
+        <button class="btn sm danger press" data-act="remove" data-id="${e.id}">${ICON.trash}${tr("Remove from the library")}</button>
       </div>
     </div>
-  </section>`;
+  </aside>`;
+}
+
+// The sidebar in select mode: what's ticked, and what can be done to all of it at once.
+function pickSideHtml() {
+  const byId = new Map(entries().map((e) => [e.id, e]));
+  const ids = pickedIds();
+  const items = ids.map((id) => byId.get(id));
+  const size = items.reduce((n, e) => n + e.size, 0);
+  const inRot = items.filter((e) => inRotation(e.id)).length;
+  const stack = items.slice(0, 3);
+  const none = !ids.length;
+  return `<aside class="side picking" data-key="side-pick">
+    <div class="side-scroll">
+      <div class="side-media stack" data-key="sp-stack">${stack.length
+        ? stack.map((e, k) => { const t = thumbUrl(e); return `<div class="stack-card s${k}" data-key="sc-${e.id}">${t ? `<img src="${esc(t)}" draggable="false" onerror="this.remove()">` : placeholder(e)}</div>`; }).reverse().join("")
+        : `<div class="stack-empty">${ICON.check}</div>`}</div>
+      <div class="side-title">${none ? tr("Select wallpapers") : esc(tr("{n} selected", { n: ids.length }))}</div>
+      <div class="hint">${none ? tr("Click wallpapers to tick them. Shift-click picks a range, Ctrl+A picks everything shown.") : esc(`${fmtSize(size)}${inRot ? ` · ${tr("{n} in rotation", { n: inRot })}` : ""}`)}</div>
+      <div class="side-btns">
+        <button class="btn sm press" data-act="pickAll">${tr("Select all")}</button>
+        <button class="btn sm press" data-act="pickNone" ${none ? "disabled" : ""}>${tr("Select none")}</button>
+      </div>
+      <div class="side-btns col">
+        <button class="btn press" data-act="pickRotation" data-on="1" ${none || inRot === ids.length ? "disabled" : ""}>${ICON.cycle}${tr("Add to rotation")}</button>
+        <button class="btn press" data-act="pickRotation" data-on="0" ${!inRot ? "disabled" : ""}>${tr("Take out of rotation")}</button>
+        <button class="btn danger press" data-act="pickDelete" ${none ? "disabled" : ""}>${ICON.trash}${none ? tr("Delete") : tr("Delete {n}", { n: ids.length })}</button>
+      </div>
+    </div>
+  </aside>`;
 }
 
 function renderLibrary() {
@@ -605,26 +697,27 @@ function renderLibrary() {
           <button class="btn big press" data-act="pick" data-folder="1">${ICON.folder}${tr("Add an HTML folder")}</button></div>
       </div></section></div>`;
   }
+  // Deleted wallpapers drop out of the selection.
+  for (const id of S.picked) if (!all.some((e) => e.id === id)) S.picked.delete(id);
   const hero = heroItem();
-  const q = S.query.trim().toLowerCase();
-  const match = FILTERS[S.filter] ?? FILTERS.all;
-  const shown = all.filter((e) => match[0](e) && (!q || e.name.toLowerCase().includes(q)));
+  const shown = shownEntries();
   const chips = Object.entries(FILTERS)
     .map(([k, [f, label]]) => [k, label, all.filter(f).length])
     .filter(([k, , n]) => k === "all" || k === S.filter || n);
 
-  return `<div class="page" data-key="p-library">
-    ${heroHtml(hero)}
+  return `<div class="page lib" data-key="p-library">
     <section class="shelf">
       <div class="bar">
         ${chips.map(([k, label, n]) => `<button class="chip press ${S.filter === k ? "on" : ""}" data-act="filter" data-f="${k}">${tr(label)}<span class="n tnum">${n}</span></button>`).join("")}
         <span class="sp"></span>
         <label class="search">${ICON.search}<input id="search" placeholder="${esc(tr("Search"))}" value="${esc(S.query)}" spellcheck="false"></label>
+        <button class="btn sm press ${S.picking ? "on" : ""}" data-act="pickMode" title="${esc(tr("Select several wallpapers to delete them or change their rotation together"))}">${ICON.check}${S.picking ? tr("Done") : tr("Select")}</button>
         <button class="btn sm press" data-act="pick" data-folder="0">${ICON.plus}${tr("Add files")}</button>
         <button class="btn sm round press" data-act="pick" data-folder="1" title="${esc(tr("Add HTML folder"))}" aria-label="${esc(tr("Add HTML folder"))}">${ICON.folder}</button>
       </div>
-      <div class="grid-wrap">${shown.length ? `<div class="grid">${shown.map((e) => tileHtml(e, e.id === hero.id)).join("")}</div>` : `<div class="empty">${tr("Nothing matches.")}</div>`}</div>
+      <div class="grid-wrap ${S.picking ? "picking" : ""}">${shown.length ? `<div class="grid">${shown.map((e) => tileHtml(e, e.id === hero.id)).join("")}</div>` : `<div class="empty">${tr("Nothing matches.")}</div>`}</div>
     </section>
+    ${S.picking ? pickSideHtml() : sideHtml(hero)}
   </div>`;
 }
 
@@ -647,7 +740,7 @@ async function wsLoad(more = false) {
     } else {
       // The filters can leave a page nearly empty, so keep going until there's a screenful.
       for (let tries = 0; tries < 4; tries++) {
-        const r = await invoke("workshop_browse", { query: { sort: w.sort, genre: w.genre, kind: w.kind, search: w.search, page: w.page } });
+        const r = await invoke("workshop_browse", { query: { sort: w.sort, genre: w.genre, kind: w.kind === "all" ? null : w.kind, search: w.search, page: w.page } });
         if (seq !== w.seq) return;
         items.push(...r.items);
         hasMore = r.more;
@@ -697,7 +790,7 @@ function wsTileHtml(i, sel) {
       ${res ? `<span class="pill br">${res}</span>` : ""}
     </div>
     <div class="t-name">${esc(i.title)}</div>
-    <div class="t-meta"><span>${esc([i.genres.map(tr).join(", "), i.size ? fmtSize(i.size) : null].filter(Boolean).join(" · "))}</span></div>
+    <div class="t-meta"><span>${esc([wsKindLabel(i), i.genres.map(tr).join(", "), i.size ? fmtSize(i.size) : null].filter(Boolean).join(" · "))}</span></div>
   </button>`;
 }
 
@@ -783,7 +876,7 @@ function renderWorkshop() {
         <select id="ws-genre" class="select">${genres.map(([v, t]) => `<option value="${esc(v)}" ${w.genre === v ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>` : ""}
       </div>
       ${discover ? `<div class="bar sub">${sorts.map(([v, t]) => `<button class="chip press ${w.sort === v ? "on" : ""}" data-act="wsSort" data-v="${v}">${t}</button>`).join("")}
-        <span class="sp"></span>${seg("wsKind", w.kind, [["video", tr("Video")], ["scene", tr("Scene")], ["web", "HTML"]])}</div>` : ""}
+        <span class="sp"></span>${seg("wsKind", w.kind, [["all", tr("All")], ["scene", tr("Scene")], ["video", tr("Video")], ["web", "HTML"]])}</div>` : ""}
       ${note}
       <div class="grid-wrap">${grid}</div>
     </section>
@@ -914,17 +1007,9 @@ function render() {
   syncScroll();
 }
 
-// Scrolling the grid shrinks the hero toward a compact bar so the grid gets the room, and near the
-// bottom of the Workshop the next page loads without a click.
-const HERO_MIN = 230;
+// Near the bottom of the Workshop the next page loads without a click.
 function syncScroll() {
-  const page = $("#page");
-  const wrap = page.querySelector(".grid-wrap");
-  const full = Math.min(560, Math.max(260, innerHeight * 0.52));
-  const range = Math.max(0, full - HERO_MIN);
-  const shrink = wrap && page.querySelector(".hero:not(.welcome)") ? Math.min(wrap.scrollTop, range) : 0;
-  page.style.setProperty("--shrink", `${shrink}px`);
-  page.style.setProperty("--c", range ? (shrink / range).toFixed(3) : 0);
+  const wrap = $("#page").querySelector(".grid-wrap");
   const w = S.ws;
   if (wrap && S.tab === "workshop" && w.items?.length && w.more && !w.loading && !w.error
       && wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight < 500) wsLoad(true);

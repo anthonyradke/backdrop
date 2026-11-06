@@ -140,13 +140,25 @@ pub fn rename_item(core: State<'_, Core>, id: String, name: String) -> Result<()
     Ok(())
 }
 
+/// Deletes wallpapers from the library (one, or a whole selection), taking them off the displays and
+/// out of rotation first.
 #[tauri::command]
-pub fn delete_local(core: State<'_, Core>, id: String) {
+pub fn delete_items(core: State<'_, Core>, ids: Vec<String>) {
+    if ids.is_empty() {
+        return;
+    }
     core.update_config(|c| {
-        c.assignments.retain(|_, v| *v != id);
-        c.span.take_if(|v| *v == id);
+        c.assignments.retain(|_, v| !ids.contains(v));
+        c.span.take_if(|v| ids.contains(v));
+        c.rotation.pool.retain(|v| !ids.contains(v));
     });
-    core.library.lock().unwrap().remove(&id);
+    {
+        let mut lib = core.library.lock().unwrap();
+        for id in &ids {
+            lib.remove(id);
+        }
+    }
+    log(format!("deleted {} wallpaper(s) from the library", ids.len()));
     core.emit_state();
 }
 
@@ -291,16 +303,21 @@ pub fn update_settings(app: AppHandle, core: State<'_, Core>, patch: SettingsPat
     }
 }
 
-/// Adds an item to (or takes it off) the rotation list.
+/// Adds items to (or takes them off) the rotation list, keeping the order they were marked in.
 #[tauri::command]
-pub fn set_in_rotation(core: State<'_, Core>, id: String, on: bool) -> Result<(), String> {
-    if !common::valid_id(&id) {
+pub fn set_in_rotation(core: State<'_, Core>, ids: Vec<String>, on: bool) -> Result<(), String> {
+    if !ids.iter().all(|id| common::valid_id(id)) {
         return Err("bad id".into());
     }
     core.update_config(|c| {
-        c.rotation.pool.retain(|x| *x != id);
         if on {
-            c.rotation.pool.push(id);
+            for id in ids {
+                if !c.rotation.pool.contains(&id) {
+                    c.rotation.pool.push(id);
+                }
+            }
+        } else {
+            c.rotation.pool.retain(|x| !ids.contains(x));
         }
     });
     Ok(())

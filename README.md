@@ -35,6 +35,8 @@ The Windows build is about 5 MB installed, from a 2 MB installer.
 - A Workshop tab for browsing video, scene and HTML wallpapers from the Wallpaper Engine Steam Workshop, with
   anime left out; Steam downloads them in the background and Backdrop adds them to the library. Everything
   already subscribed to in Steam can be added too, unfiltered
+- A library grid with the selected wallpaper's details and controls in a sidebar, and a select mode
+  (click, shift-click, Ctrl+A) for deleting many wallpapers or changing their rotation at once
 - Drag-and-drop import; HTML wallpapers can be a folder with an `index.html`, a `.zip` of one, or a single
   `.html` file
 - Interface in English, Spanish, German and Simplified Chinese
@@ -115,7 +117,8 @@ from the whole library when none are marked. The engine treats a gap of more tha
 
 Browsing reads the public workshop page for item ids and gets titles, previews and tags from Steam's
 `GetPublishedFileDetails` API, which needs no key. Requests go through the `curl` that ships with
-Windows. Only video and HTML items are shown, since Backdrop can't play Wallpaper Engine scenes.
+Windows. Video, scene and HTML items are shown, mixed by default as on Steam; applications and presets
+are left out, since Backdrop can't run them.
 
 Anime is filtered in three steps: the query asks for the "Everyone" rating and excludes the genre tags
 that turned out to be mostly anime (or memes) when sampled, items need one of the remaining genres and
