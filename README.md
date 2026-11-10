@@ -1,203 +1,146 @@
 <p align="center">
-  <img src="docs/icon.png" width="128" height="128" alt="Backdrop icon">
+  <img src="docs/icon.png" width="112" height="112" alt="Backdrop icon">
 </p>
 
 <h1 align="center">Backdrop</h1>
 
-<p align="center">Lightweight live wallpapers for Windows.</p>
+<p align="center">Live wallpapers for Windows: video, GIF, HTML and Wallpaper Engine scenes behind the desktop icons.</p>
 
----
+<p align="center">
+  <img src="https://img.shields.io/badge/platform-Windows-0078D4?logo=windows" alt="Windows">
+  <img src="https://img.shields.io/badge/Rust-Tauri%202-B7410E?logo=rust&logoColor=white" alt="Rust and Tauri 2">
+  <img src="https://img.shields.io/github/v/release/anthonyradke/backdrop" alt="Latest release">
+</p>
 
-Backdrop plays videos, animated GIFs, HTML pages and Wallpaper Engine scenes behind the desktop icons. Still
-images are passed to the operating system as a regular wallpaper, so they use no resources once set.
+Backdrop plays videos, animated GIFs, HTML pages and Wallpaper Engine scenes behind the desktop icons. It is built
+on Tauri 2 and renders in the system WebView2 instead of a bundled browser, so it is about 5 MB installed, from a
+2 MB installer. Still images are handed to Windows as a regular wallpaper and cost nothing once set.
 
-The app is built on [Tauri 2](https://tauri.app) and uses the system WebView instead of a bundled browser.
-The Windows build is about 5 MB installed, from a 2 MB installer.
+<p align="center">
+  <img src="docs/library.jpg" width="860" alt="The library window, with a grid of wallpapers and the selected wallpaper's details">
+</p>
 
 ## Features
 
-- Video (MP4, WebM, MOV), animated GIF and HTML/canvas/WebGL wallpapers rendered behind the desktop icons
-- Wallpaper Engine scene wallpapers (`scene.pkg`): image layers, shader effects, puppets, particles, text,
-  sound, audio visualizers, album art and song info, cursor effects, clicks and SceneScript, rendered with
-  WebGL2
-- Still images (JPG, PNG, WebP and others) set through the native wallpaper API
-- A separate wallpaper per display, the same one on every display, or one wallpaper spanned across all of
-  them as a single picture
-- Fill, fit, fit-height, stretch and center scaling; playback speed from 0.5× to 2×; optional audio
-- A full-resolution frame of each moving wallpaper is set as the Windows wallpaper, so the desktop matches
-  it before Backdrop starts
-- Rotation on a timer (in order or shuffled, the same or different on each display), plus a random pick at
-  startup or after waking from sleep, and a *Next wallpaper* item in the tray menu
-- Automatic pause when a window covers the wallpaper, when another app is in front, on battery, with
-  battery saver on, and while the screen is locked
-- Resolution badges (4K, 1440p, 1080p) and codec details for each item, with a warning on HEVC and ProRes
-  files, which Windows can't play
-- A Workshop tab for browsing video, scene and HTML wallpapers from the Wallpaper Engine Steam Workshop, with
-  anime left out; Steam downloads them in the background and Backdrop adds them to the library. Everything
-  already subscribed to in Steam can be added too, unfiltered
-- A library grid with the selected wallpaper's details and controls in a sidebar, and a select mode
-  (click, shift-click, Ctrl+A) for deleting many wallpapers or changing their rotation at once
-- Drag-and-drop import; HTML wallpapers can be a folder with an `index.html`, a `.zip` of one, or a single
-  `.html` file
-- Interface in English, Spanish, German and Simplified Chinese
-- Runs from the system tray with the main window closed, and can start at login
+Wallpapers
+- Video (MP4, WebM, MOV), animated GIF and HTML, canvas or WebGL pages.
+- Wallpaper Engine scenes (`scene.pkg`) rendered with WebGL2: image layers, shader effects, puppets, particles,
+  text, audio visualizers and SceneScript.
+- Still images (JPG, PNG, WebP and others) set through the native wallpaper API.
+- Import by drag and drop. An HTML wallpaper can be a folder with an `index.html`, a `.zip` of one, or a single
+  `.html` file.
+
+Displays and playback
+- A separate wallpaper per display, the same one on every display, or one spanned across all of them.
+- Fill, fit, fit-height, stretch and center scaling, playback speed from 0.5× to 2×, optional audio.
+- Playback pauses when a window covers the wallpaper, when another app is in front, on battery, with battery
+  saver on, and while the screen is locked.
+- A full-resolution frame of each moving wallpaper is set as the Windows wallpaper, so the desktop matches before
+  Backdrop starts.
+- Rotation on a timer, in order or shuffled, with a random pick at startup or after waking from sleep.
+
+Library
+- A grid with resolution badges and codec details, and a warning on HEVC and ProRes files, which WebView2 can't
+  play.
+- Multi-select for deleting wallpapers or changing their rotation in bulk.
+- A Workshop tab that browses the Wallpaper Engine Steam Workshop by genre and adds items to the library. Steam
+  does the downloading. Anime is filtered out of browsing, and single items or creators can be hidden.
+
+App
+- Runs from the system tray with the window closed, and can start at login.
+- Signed updates from this repo's releases, installed from the title bar or the tray.
+- Interface in English, Spanish, German and Simplified Chinese.
 
 ## Requirements
 
-Windows 10 or 11 with WebView2 (preinstalled on Windows 11).
+- Windows 10 or 11 with WebView2, which Windows 11 includes.
+- For scenes and the Workshop tab: Steam and an installed copy of Wallpaper Engine. Scenes read its stock shaders
+  and effects, and Steam only serves Workshop files to accounts that own it. Video, GIF, HTML and image
+  wallpapers need neither.
 
-## Installation
+## Install
 
-Download `Backdrop_<version>_x64-setup.exe` from [Releases](https://github.com/anthonyradke/backdrop/releases)
-and run it. Builds are not code-signed, so SmartScreen warns on first launch; choose
-*More info* > *Run anyway*. The installer is per-user and needs no administrator rights.
+Download `Backdrop_<version>_x64-setup.exe` from [Releases](https://github.com/anthonyradke/backdrop/releases) and
+run it. The installer is per-user and needs no administrator rights. It isn't code-signed, so SmartScreen asks on
+first launch: choose More info, then Run anyway.
 
-### Updates
+Backdrop checks for a new release at startup and every six hours. Updating downloads the installer, verifies its
+signature, installs it and restarts, keeping the library and settings.
 
-Backdrop checks this repo's releases when it starts and every six hours. The round button next to the status
-pill in the title bar checks on demand; when a new version exists it turns green and reads *Update*, and the
-tray menu gets an *Update to Backdrop x.y.z* item. Either one downloads the installer, verifies its
-signature, installs it and restarts Backdrop. The library and settings are kept.
+## How it works
 
-## Architecture
-
+```mermaid
+flowchart LR
+  lib["Library<br/>items by SHA-256 id"] --> engine["Engine loop<br/>1 s tick"]
+  engine -- "still images" --> native["Windows wallpaper API"]
+  engine -- "one per display,<br/>or one spanned" --> player["Player window<br/>WebView2"]
+  media["media:// protocol<br/>HTTP ranges"] --> player
+  player -- "reparented below the icons" --> desktop["Explorer desktop<br/>WorkerW or Progman"]
+  steam["Steam Workshop"] -- "downloads via Steam" --> lib
 ```
-app/
-  src-tauri/   desktop app (Rust); common.rs has the item types, ids and zip packing for HTML wallpapers
-  ui/          library window and player page; plain HTML, CSS and JavaScript with no build step;
-               translations in i18n.js
-scripts/       Windows build script
-```
 
-### Desktop app
+- Each display with a moving wallpaper gets one borderless WebView2 window with hardware video decoding. The
+  window is reparented into Explorer's desktop window below the icons: the `WorkerW` window before Windows 11
+  24H2, and a layered child of `Progman` from 24H2 on. Players are recreated if Explorer restarts.
+- A spanned wallpaper uses a single window over the rectangle around all displays, so it needs one decoder and
+  stays in sync.
+- Files reach the player through a custom `media://` protocol with HTTP range support, with a loopback HTTP
+  server as the fallback.
+- Scenes are unpacked from `scene.pkg` and rendered in the player page. The renderer reads Wallpaper Engine's
+  texture and model formats, translates its shaders to GLSL ES 3.00 and runs SceneScript in a Worker with no
+  network access.
+- Workshop downloads go through the running Steam client using Wallpaper Engine's own Steam API library, then
+  are hard-linked into the library so they take no extra space on the same drive.
 
-Each display showing a moving wallpaper gets one borderless WebView window that plays it with hardware
-video decoding. A spanned wallpaper gets a single window over the rectangle around all displays, so it
-needs one decoder and stays in sync across them. A one-second engine loop (`engine.rs`) assigns players to displays, applies native image
-wallpapers, and handles pausing.
+[docs/architecture.md](docs/architecture.md) covers each of these in detail.
 
-#### Scenes (`scene.rs`, `audio.rs`, `app/ui/scene/`)
+## Build from source
 
-`scene.rs` unpacks a `scene.pkg` into the library. The renderer runs in the player page:
-
-- `tex.js` reads `.tex` textures (raw, LZ4, DXT, BC7, embedded PNG/JPEG, frame sheets, MP4)
-- `shader.js` translates Wallpaper Engine's shaders to GLSL ES 3.00 with its own preprocessor, then repairs
-  what the compiler rejects from its error messages, since they rely on HLSL's and desktop GL's loose typing
-- `scene.js` holds the layers, effect chains, framebuffers, keyframes, parallax and bloom
-- `puppet.js` reads `.mdl` meshes, skeletons and 3D models, `particles.js` simulates particle systems, `text.js` draws
-  text and plays sound
-- `script.js` runs SceneScript in a Worker with no network access or access to the app's commands
-
-Stock shaders, effects and script classes aren't part of a wallpaper or of Backdrop. They are read from
-Wallpaper Engine's install through `media://we-assets/`, so it has to stay installed. An effect that fails is
-skipped and logged to `backdrop.log`; a scene that can't run at all shows its preview image. `audio.rs` turns
-the system's output (WASAPI loopback) into frequency bands only while a scene that needs them is on screen,
-and keeps no audio.
-
-#### Desktop attachment (`platform/windows.rs`)
-
-The player window is reparented into Explorer's desktop window, below the icons. Before Windows 11 24H2 this is the `WorkerW` window Explorer creates in response to
-message `0x052C`. On 24H2 and later, with the raised desktop, the player becomes a layered child of
-`Progman` placed beneath `SHELLDLL_DefView`, the same approach used by Lively Wallpaper. If Explorer
-restarts, players are recreated automatically.
-
-#### Media delivery (`media.rs`, `loopback.rs`)
-
-Files reach the player through a custom `media://`
-protocol with HTTP range support. If a WebView cannot play video through that protocol, the player falls
-back to a loopback HTTP server bound to `127.0.0.1` on a random port, with a per-session secret token in
-the request path.
-
-#### Rotation (`rotation.rs`)
-
-A background task checks the interval every 20 seconds. Picks come from the items marked for rotation, or
-from the whole library when none are marked. The engine treats a gap of more than 30 seconds between ticks as a wake from sleep.
-
-#### Steam Workshop (`workshop.rs`)
-
-Browsing reads the public workshop page for item ids and gets titles, previews and tags from Steam's
-`GetPublishedFileDetails` API, which needs no key. Requests go through the `curl` that ships with
-Windows. Video, scene and HTML items are shown, mixed by default as on Steam; applications and presets
-are left out, since Backdrop can't run them.
-
-Anime is filtered in three steps: the query asks for the "Everyone" rating and excludes the genre tags
-that turned out to be mostly anime (or memes) when sampled, items need one of the remaining genres and
-no anime words (English, Chinese or Japanese) in the title or description, and anything that still slips
-through can be hidden by item or by creator.
-
-Workshop files can only be downloaded by someone who owns Wallpaper Engine, so Steam does the
-downloading. *Download* works the way Wallpaper Engine does (`steamapi.rs`): a short-lived helper
-(`backdrop.exe --steam-download <id>`) loads Wallpaper Engine's own `steam_api64.dll`, subscribes through
-the running Steam client and reports progress until the download finishes, so no Steam window opens.
-Steam shows Wallpaper Engine as running while the helper is alive. If Steam isn't running, or Wallpaper
-Engine isn't installed, Backdrop opens the item in the Steam client to subscribe there instead. Once Steam
-has put the item in `steamapps/workshop/content/431960/`, Backdrop imports it, hard-linked when it's on
-the same drive so it takes no extra space. The *Downloaded in Steam* view lists earlier subscriptions to
-add by hand.
-
-#### Item identity
-
-Each item is identified by the first 16 hex characters of its SHA-256 hash, so adding the same file
-twice is caught without extra bookkeeping. Items live in the library folder as `<id>/` with a
-`meta.json`, the media file and, for video and images, a `thumb.jpg` the library window renders.
-
-## Building from source
-
-Requires a recent stable Rust toolchain.
-
-### Windows app (cross-compiled from Linux)
-
-The Windows app is built on Linux with [cargo-xwin](https://github.com/rust-cross/cargo-xwin):
+The Windows app is cross-compiled on Linux with [cargo-xwin](https://github.com/rust-cross/cargo-xwin).
 
 ```sh
 rustup target add x86_64-pc-windows-msvc
 cargo install --locked cargo-xwin tauri-cli
 sudo apt install nsis lld clang
-scripts/build-windows.sh        # output: dist/Backdrop_<version>_x64-setup.exe
-```
-
-The installer is signed for the updater, so a release build needs the signing key in
-`TAURI_SIGNING_PRIVATE_KEY` and its password in `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
-
-### Releases
-
-Releases are built by GitHub Actions (`.github/workflows/release.yml`). `scripts/release.sh X.Y.Z` takes
-the list in `UNRELEASED.md` as the release notes, bumps the version, tags and pushes; CI builds, signs and
-publishes the installer with the `latest.json` the in-app updater reads, and the update button shows the
-notes.
-
-### Development
-
-```sh
-cd app/src-tauri && cargo tauri dev
-```
-
-On Linux the app runs in a plain window (`platform/other.rs`) for development only.
-
-### Tests
-
-```sh
+scripts/build-windows.sh         # dist/Backdrop_<version>_x64-setup.exe
 cargo test --workspace
 ```
 
+A release build needs the updater signing key. [docs/development.md](docs/development.md) covers signing,
+releases and running the app locally.
+
+## Layout
+
+| Path | Contents |
+|---|---|
+| `app/src-tauri/src/engine.rs` | Assigns players to displays, applies image wallpapers, handles pausing |
+| `app/src-tauri/src/platform/` | Desktop attachment on Windows, and a plain window on Linux for development |
+| `app/src-tauri/src/scene.rs`, `audio.rs` | Scene unpacking, and frequency bands from WASAPI loopback for visualizers |
+| `app/src-tauri/src/media.rs`, `loopback.rs` | The `media://` protocol and its HTTP fallback |
+| `app/src-tauri/src/workshop.rs`, `steamapi.rs` | Workshop browsing and downloads through Steam |
+| `app/src-tauri/src/rotation.rs`, `library.rs` | Rotation timer and the library on disk |
+| `app/ui` | Library window and player page: plain HTML, CSS and JavaScript with no build step |
+| `app/ui/scene/` | The WebGL2 scene renderer |
+| `scripts/` | Windows build and release scripts |
+
 ## Known limitations
 
-- WebView2 cannot decode HEVC/H.265 or ProRes. Use H.264, VP9 or AV1 (HandBrake converts
-  to H.264).
-- The still frame covers the desktop wallpaper only. The lock screen keeps its own image.
-- With mixed display scaling, the player on a secondary display renders at the primary display's
-  scale. Video still fills the screen but may appear slightly softer.
-- A spanned still image uses the Windows *Span* position, which ignores the Fit setting. Spanned video and
-  HTML wallpapers follow it, measured against the rectangle around all displays.
-- HTML wallpapers cannot be paused externally. The player posts `{ backdrop: { paused, muted, volume, speed } }`
-  to the page; pages that listen for this message can stop their own animation loop.
-- Codec detection reads MP4 and MOV headers only; other formats show no codec.
-- Scene wallpapers run at 30 fps and need Wallpaper Engine installed for its stock assets. Lights are simple point
-  lights. Application wallpapers aren't
-  supported, because they would mean running downloaded programs.
-- Workshop downloads need Steam and a copy of Wallpaper Engine, which has to stay installed (it doesn't have
-  to run). The anime filter relies on how uploaders tag and title their items, so some still get through.
+- WebView2 can't decode HEVC or ProRes. Use H.264, VP9 or AV1.
+- Scenes run at 30 fps with simple point lighting. Application wallpapers aren't supported, because they would
+  mean running downloaded programs.
+- The still frame covers the desktop wallpaper only; the lock screen keeps its own image.
+- With mixed display scaling, the player on a secondary display renders at the primary display's scale, so video
+  can look slightly softer there.
+- A spanned still image uses the Windows Span position, which ignores the Fit setting.
+- HTML wallpapers can't be paused from outside. The player posts `{ backdrop: { paused, muted, volume, speed } }`
+  to the page, and a page that listens for it can stop its own animation loop.
+- Codec detection reads MP4 and MOV headers only.
+
+## Credits
+
+Backdrop is not affiliated with Wallpaper Engine or Valve. The desktop attachment on Windows 11 24H2 follows the
+approach used by [Lively Wallpaper](https://github.com/rocksdanister/lively).
 
 ## License
 
-[MIT](LICENSE)
+MIT. See [LICENSE](LICENSE).
