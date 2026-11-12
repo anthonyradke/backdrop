@@ -193,6 +193,8 @@ pub struct StateView {
     lang: &'static str,
     /// FFmpeg is installed, so videos WebView2 can't play can be converted (transcode.rs).
     ffmpeg: bool,
+    /// winget is installing FFmpeg now.
+    ffmpeg_installing: bool,
     /// Item id -> percent done, for conversions running now.
     converting: HashMap<String, u8>,
     workshop: WorkshopView,
@@ -272,6 +274,7 @@ impl Core {
         StateView {
             lang: ui_language(&config.language),
             ffmpeg: transcode::ffmpeg().is_some(),
+            ffmpeg_installing: transcode::installing(),
             converting: transcode::progress(),
             config,
             displays: self.displays.lock().unwrap().clone(),
@@ -465,6 +468,7 @@ pub fn run() {
             commands::set_app_rules,
             commands::running_apps,
             commands::convert_video,
+            commands::install_ffmpeg,
             commands::next_wallpaper,
             commands::save_frame,
             commands::reset_settings,

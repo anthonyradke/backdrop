@@ -52,6 +52,7 @@
     "allow-set-app-rules",
     "allow-running-apps",
     "allow-player-stats",
-    "allow-convert-video"
+    "allow-convert-video",
+    "allow-install-ffmpeg"
   ]
 }

@@ -81,8 +81,12 @@ HTML wallpapers and SceneScript come from other people, so neither can reach the
 
 WebView2 can't decode HEVC or ProRes. Windows has no ProRes decoder and decodes HEVC only with a
 separate Store extension, so Media Foundation isn't a dependable converter; FFmpeg is, when it's
-installed (found on the `PATH`, in winget's links folder or in `C:\ffmpeg\bin`). The library's sidebar
-then offers to convert such a video: FFmpeg writes H.264 with AAC audio to a staging file in the
+installed (found on the `PATH`, in winget's links folders or in `C:\ffmpeg\bin`). Backdrop doesn't
+ship it: a build with libx264 is GPL and about 100 MB, for a feature most libraries never need. When
+it's missing, the sidebar offers Install FFmpeg, which runs `winget install --id Gyan.FFmpeg`; winget
+checks the download against its manifest's hash, links `ffmpeg.exe` into its links folder (searched
+directly, since the running process's `PATH` predates the install) and keeps it updated. With FFmpeg
+present, the sidebar offers to convert such a video: FFmpeg writes H.264 with AAC audio to a staging file in the
 library, reporting progress on `-progress pipe:1`, and the result is imported in place of the original
 (`Core::replace_item`), keeping its name and its place on the displays and in rotation. Conversions
 still running when Backdrop quits are stopped.

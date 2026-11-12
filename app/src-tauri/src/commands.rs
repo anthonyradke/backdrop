@@ -383,6 +383,12 @@ pub fn convert_video(app: AppHandle, id: String) -> Result<(), String> {
     crate::transcode::start(&app, &id)
 }
 
+/// Installs FFmpeg with winget, for converting videos. Returns when winget is done.
+#[tauri::command]
+pub async fn install_ffmpeg(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::transcode::install(&app.state::<Core>())).await.map_err(|e| e.to_string())?
+}
+
 /// Replaces the schedule: the times of day the wallpaper changes, each to a chosen wallpaper.
 #[tauri::command]
 pub fn set_schedule(core: State<'_, Core>, slots: Vec<config::Slot>) -> Result<(), String> {

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-install-ffmpeg"
+description = "Enables the install_ffmpeg command without any pre-configured scope."
+commands.allow = ["install_ffmpeg"]
+
+[[permission]]
+identifier = "deny-install-ffmpeg"
+description = "Denies the install_ffmpeg command without any pre-configured scope."
+commands.deny = ["install_ffmpeg"]

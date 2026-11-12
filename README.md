@@ -135,8 +135,8 @@ releases and running the app locally.
 
 ## Known limitations
 
-- WebView2 can't decode HEVC or ProRes. With FFmpeg installed (`winget install ffmpeg`), the library converts
-  such a video to H.264; otherwise use H.264, VP9 or AV1.
+- WebView2 can't decode HEVC or ProRes. The library converts such a video to H.264 with FFmpeg, which it
+  installs through winget on request; Backdrop doesn't ship FFmpeg itself.
 - Scenes run at 30 fps with simple point lighting. Application wallpapers aren't supported, because they would
   mean running downloaded programs.
 - The still frame covers the desktop wallpaper only; the lock screen keeps its own image.

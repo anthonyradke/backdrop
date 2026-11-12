@@ -393,6 +393,12 @@
           "markdownDescription": "Enables the import_paths command without any pre-configured scope."
         },
         {
+          "description": "Enables the install_ffmpeg command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-install-ffmpeg",
+          "markdownDescription": "Enables the install_ffmpeg command without any pre-configured scope."
+        },
+        {
           "description": "Enables the install_update command without any pre-configured scope.",
           "type": "string",
           "const": "allow-install-update",
@@ -637,6 +643,12 @@
           "type": "string",
           "const": "deny-import-paths",
           "markdownDescription": "Denies the import_paths command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the install_ffmpeg command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-install-ffmpeg",
+          "markdownDescription": "Denies the install_ffmpeg command without any pre-configured scope."
         },
         {
           "description": "Denies the install_update command without any pre-configured scope.",

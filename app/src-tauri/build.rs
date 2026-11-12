@@ -26,6 +26,7 @@ const COMMANDS: &[&str] = &[
     "set_app_rules",
     "running_apps",
     "convert_video",
+    "install_ffmpeg",
     "next_wallpaper",
     "save_frame",
     "reset_settings",

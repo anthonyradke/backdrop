@@ -366,6 +366,7 @@ const actions = {
     return saveSchedule([...schedule(), { at: (now.getHours() + 1) % 24 * 60, item: sel, display: null }]);
   },
   convert: (el) => call("convert_video", { id: el.dataset.id }),
+  installFfmpeg: () => call("install_ffmpeg", {}, tr("FFmpeg is installed")),
   appRuleAdd: () => {
     const name = $("#app-new")?.value.trim().toLowerCase();
     if (!name) return;
@@ -685,16 +686,17 @@ function tileHtml(e, sel) {
   </button>`;
 }
 
-// A video WebView2 can't play: convert it here when FFmpeg is installed (transcode.rs), otherwise
-// say how.
+// A video WebView2 can't play: convert it here with FFmpeg (transcode.rs), installing FFmpeg with
+// winget first if it isn't there.
 function convertHtml(e) {
   const codec = codecName(e.codec);
   const pct = S.state.converting?.[e.id];
   if (pct != null) return `<div class="warn">${esc(tr("Converting to H.264: {p}%", { p: pct }))}<div class="bar"><i style="width:${pct}%"></i></div></div>`;
   if (S.state.ffmpeg) return `<div class="warn">${esc(tr("Windows can't play {codec} video.", { codec }))}
     <div><button class="btn sm press" data-act="convert" data-id="${e.id}">${tr("Convert to H.264")}</button></div></div>`;
-  return `<div class="warn">${tr("Windows can't play {codec} video. Convert it to H.264 (HandBrake works) and add that instead.", { codec })}
-    ${esc(tr("With FFmpeg installed (winget install ffmpeg), Backdrop converts it here."))}</div>`;
+  const busy = S.state.ffmpegInstalling;
+  return `<div class="warn">${esc(tr("Windows can't play {codec} video. Backdrop can convert it to H.264 with FFmpeg, a free video tool that winget installs.", { codec }))}
+    <div><button class="btn sm press" data-act="installFfmpeg"${busy ? " disabled" : ""}>${esc(tr(busy ? "Installing FFmpeg…" : "Install FFmpeg"))}</button></div></div>`;
 }
 
 // The inspector on the right: the picked wallpaper large, what can be done with it, then its details.

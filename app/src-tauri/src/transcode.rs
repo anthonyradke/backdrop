@@ -1,7 +1,8 @@
 //! Converts videos WebView2 can't play (HEVC, ProRes) to H.264 with FFmpeg, when FFmpeg is
 //! installed. Windows has no ProRes decoder at all and decodes HEVC only with a separate Store
-//! extension, so Media Foundation can't do this reliably; FFmpeg can, and `winget install ffmpeg`
-//! puts it on the PATH. Backdrop doesn't ship it.
+//! extension, so Media Foundation can't do this reliably; FFmpeg can. Backdrop doesn't ship it (a
+//! build with libx264 is GPL and about 100 MB); the library's Install FFmpeg button has winget fetch
+//! it instead, which checks the download against its manifest's hash and keeps it updated.
 //!
 //! The converted file is imported as a new item that takes the old one's name, properties and place
 //! (`Core::replace_item`), and the old item goes.
@@ -11,6 +12,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
@@ -33,11 +35,19 @@ fn set_progress(id: &str, p: Option<u8>) {
     };
 }
 
+/// Where `ffmpeg()` last found FFmpeg, and when it looked.
+static FOUND: Mutex<Option<(Instant, Option<PathBuf>)>> = Mutex::new(None);
+/// winget is installing FFmpeg now.
+static INSTALLING: AtomicBool = AtomicBool::new(false);
+
+pub fn installing() -> bool {
+    INSTALLING.load(Ordering::Relaxed)
+}
+
 /// `ffmpeg.exe` on the PATH or where winget and the usual manual installs put it. Looked up at most
 /// once a minute, since the library window asks with every update.
 pub fn ffmpeg() -> Option<PathBuf> {
-    static CACHE: Mutex<Option<(Instant, Option<PathBuf>)>> = Mutex::new(None);
-    let mut cache = CACHE.lock().unwrap();
+    let mut cache = FOUND.lock().unwrap();
     if let Some((at, found)) = cache.as_ref() {
         if at.elapsed() < Duration::from_secs(60) {
             return found.clone();
@@ -45,13 +55,61 @@ pub fn ffmpeg() -> Option<PathBuf> {
     }
     let exe = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
     let mut dirs: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+    // winget's links folders aren't on this process's PATH until Backdrop restarts after an install.
     if let Some(local) = std::env::var_os("LOCALAPPDATA") {
         dirs.push(Path::new(&local).join("Microsoft").join("WinGet").join("Links"));
+    }
+    if let Some(pf) = std::env::var_os("ProgramFiles") {
+        dirs.push(Path::new(&pf).join("WinGet").join("Links"));
     }
     dirs.push(PathBuf::from(r"C:\ffmpeg\bin"));
     let found = dirs.into_iter().map(|d| d.join(exe)).find(|p| p.is_file());
     *cache = Some((Instant::now(), found.clone()));
     found
+}
+
+/// Installs FFmpeg with winget (the Gyan.FFmpeg package, which links `ffmpeg.exe` into winget's
+/// links folder). Blocks until winget is done, which takes a minute or so for the download.
+pub fn install(core: &Core) -> Result<(), String> {
+    if ffmpeg().is_some() {
+        return Ok(());
+    }
+    if INSTALLING.swap(true, Ordering::Relaxed) {
+        return Ok(());
+    }
+    core.emit_state();
+    log("installing FFmpeg with winget");
+    let mut cmd = Command::new("winget");
+    cmd.args(["install", "--id", "Gyan.FFmpeg", "--exact", "--source", "winget", "--silent"])
+        .args(["--accept-package-agreements", "--accept-source-agreements", "--disable-interactivity"])
+        .stdin(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let out = cmd.output();
+    *FOUND.lock().unwrap() = None;
+    let found = ffmpeg().is_some();
+    INSTALLING.store(false, Ordering::Relaxed);
+    core.emit_state();
+    let out = match out {
+        Err(e) => {
+            log(format!("couldn't run winget: {e}"));
+            return Err("winget isn't available here. Install FFmpeg from ffmpeg.org and restart Backdrop.".into());
+        }
+        Ok(o) => o,
+    };
+    if found {
+        log("FFmpeg installed");
+        return Ok(());
+    }
+    // winget redraws its progress with \r, so only the last piece of each line is what it said.
+    let text = String::from_utf8_lossy(&out.stdout);
+    let said: Vec<&str> = text.lines().filter_map(|l| l.rsplit('\r').map(str::trim).find(|p| !p.is_empty())).collect();
+    let tail = said[said.len().saturating_sub(3)..].join(" | ");
+    log(format!("winget didn't install FFmpeg ({}): {tail}", out.status));
+    Err(if tail.is_empty() { "winget couldn't install FFmpeg".to_string() } else { format!("winget couldn't install FFmpeg: {tail}") })
 }
 
 /// "Duration: 00:01:02.50," from FFmpeg's banner, in seconds.

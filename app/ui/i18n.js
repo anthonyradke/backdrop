@@ -164,7 +164,6 @@ const STRINGS = {
     "Put every setting back to its default? Your library stays; wallpapers are cleared from the displays.": "¿Restablecer todos los ajustes? Tu biblioteca se mantiene; los fondos se quitan de las pantallas.",
     "Remove \"{name}\" from your library? The file is deleted from the library folder.": "¿Quitar «{name}» de tu biblioteca? El archivo se borra de la carpeta de la biblioteca.",
     "Remove from the library": "Quitar de la biblioteca",
-    "Windows can't play {codec} video. Convert it to H.264 (HandBrake works) and add that instead.": "Windows no puede reproducir vídeo {codec}. Conviértelo a H.264 (sirve HandBrake) y añade ese en su lugar.",
     "Workshop": "Workshop",
     "Opened in Steam. Subscribe there; Backdrop adds it once Steam has downloaded it.": "Abierto en Steam. Suscríbete allí; Backdrop lo añade cuando Steam lo haya descargado.",
     "In your library": "En tu biblioteca",
@@ -286,7 +285,10 @@ const STRINGS = {
     "Converting to H.264: {p}%": "Convirtiendo a H.264: {p} %",
     "Windows can't play {codec} video.": "Windows no puede reproducir vídeo {codec}.",
     "Convert to H.264": "Convertir a H.264",
-    "With FFmpeg installed (winget install ffmpeg), Backdrop converts it here.": "Con FFmpeg instalado (winget install ffmpeg), Backdrop lo convierte aquí.",
+    "Windows can't play {codec} video. Backdrop can convert it to H.264 with FFmpeg, a free video tool that winget installs.": "Windows no puede reproducir vídeo {codec}. Backdrop puede convertirlo a H.264 con FFmpeg, una herramienta de vídeo gratuita que instala winget.",
+    "Install FFmpeg": "Instalar FFmpeg",
+    "Installing FFmpeg…": "Instalando FFmpeg…",
+    "FFmpeg is installed": "FFmpeg está instalado",
   },
 
   de: {
@@ -449,7 +451,6 @@ const STRINGS = {
     "Put every setting back to its default? Your library stays; wallpapers are cleared from the displays.": "Alle Einstellungen zurücksetzen? Die Bibliothek bleibt erhalten; die Hintergründe werden von den Bildschirmen entfernt.",
     "Remove \"{name}\" from your library? The file is deleted from the library folder.": "„{name}“ aus der Bibliothek entfernen? Die Datei wird aus dem Bibliotheksordner gelöscht.",
     "Remove from the library": "Aus der Bibliothek entfernen",
-    "Windows can't play {codec} video. Convert it to H.264 (HandBrake works) and add that instead.": "Windows kann {codec}-Video nicht abspielen. Wandle es in H.264 um (z. B. mit HandBrake) und füge stattdessen das hinzu.",
     "Workshop": "Workshop",
     "Opened in Steam. Subscribe there; Backdrop adds it once Steam has downloaded it.": "In Steam geöffnet. Dort abonnieren; Backdrop fügt es hinzu, sobald Steam es heruntergeladen hat.",
     "In your library": "In deiner Bibliothek",
@@ -571,7 +572,10 @@ const STRINGS = {
     "Converting to H.264: {p}%": "Wird in H.264 umgewandelt: {p} %",
     "Windows can't play {codec} video.": "Windows kann {codec}-Video nicht abspielen.",
     "Convert to H.264": "In H.264 umwandeln",
-    "With FFmpeg installed (winget install ffmpeg), Backdrop converts it here.": "Mit installiertem FFmpeg (winget install ffmpeg) wandelt Backdrop es hier um.",
+    "Windows can't play {codec} video. Backdrop can convert it to H.264 with FFmpeg, a free video tool that winget installs.": "Windows kann {codec}-Video nicht abspielen. Backdrop kann es mit FFmpeg, einem kostenlosen Videowerkzeug, das winget installiert, in H.264 umwandeln.",
+    "Install FFmpeg": "FFmpeg installieren",
+    "Installing FFmpeg…": "FFmpeg wird installiert …",
+    "FFmpeg is installed": "FFmpeg ist installiert",
   },
 
   "zh-Hans": {
@@ -734,7 +738,6 @@ const STRINGS = {
     "Put every setting back to its default? Your library stays; wallpapers are cleared from the displays.": "要将所有设置恢复为默认值吗？资源库会保留；各显示器上的壁纸会被清除。",
     "Remove \"{name}\" from your library? The file is deleted from the library folder.": "要从资源库中移除“{name}”吗？文件会从资源库文件夹中删除。",
     "Remove from the library": "从资源库移除",
-    "Windows can't play {codec} video. Convert it to H.264 (HandBrake works) and add that instead.": "Windows 无法播放 {codec} 视频。请先转换为 H.264（可以用 HandBrake），再添加转换后的文件。",
     "Workshop": "创意工坊",
     "Opened in Steam. Subscribe there; Backdrop adds it once Steam has downloaded it.": "已在 Steam 中打开。请在那里订阅；Steam 下载完成后 Backdrop 会自动添加。",
     "In your library": "已在资源库中",
@@ -856,7 +859,10 @@ const STRINGS = {
     "Converting to H.264: {p}%": "正在转换为 H.264：{p}%",
     "Windows can't play {codec} video.": "Windows 无法播放 {codec} 视频。",
     "Convert to H.264": "转换为 H.264",
-    "With FFmpeg installed (winget install ffmpeg), Backdrop converts it here.": "安装 FFmpeg（winget install ffmpeg）后，Backdrop 可以在这里转换。",
+    "Windows can't play {codec} video. Backdrop can convert it to H.264 with FFmpeg, a free video tool that winget installs.": "Windows 无法播放 {codec} 视频。Backdrop 可以用 FFmpeg（一个由 winget 安装的免费视频工具）把它转换为 H.264。",
+    "Install FFmpeg": "安装 FFmpeg",
+    "Installing FFmpeg…": "正在安装 FFmpeg…",
+    "FFmpeg is installed": "FFmpeg 已安装",
   },
 };
 
