@@ -32,7 +32,7 @@ WE.TextLayer = class extends WE.ImageLayerBase {
     const faces = (this.scene.fontFaces ||= new Map());
     if (!faces.has(name)) {
       faces.set(name, (async () => {
-        const bytes = await this.scene.assets.find(name);
+        const bytes = await this.scene.assets.find(name, false);
         if (!bytes) return null;
         try {
           const face = new FontFace(`wefont${++fontCount}`, bytes);
@@ -129,7 +129,7 @@ WE.SoundLayer = class extends WE.LayerBase {
     if (!this.silent) await this.load(this.files[0]);
   }
   async load(file) {
-    const bytes = await this.scene.assets.find(file);
+    const bytes = await this.scene.assets.find(file, false);
     if (!bytes) return;
     URL.revokeObjectURL(this.audio.src);
     this.audio.src = URL.createObjectURL(new Blob([bytes]));

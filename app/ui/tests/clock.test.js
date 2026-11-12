@@ -37,3 +37,24 @@ test("a long gap doesn't jump the scene forward", () => {
   pending(60_000);
   assert.ok(drawn.at(-1) <= 0.25 + 1e-9);
 });
+
+test("a paused scene schedules no frames, and resuming doesn't jump", () => {
+  let pending = null;
+  const ctx = load(SCENE, { requestAnimationFrame: (f) => { pending = f; return 1; } });
+  let now = 0;
+  ctx.performance = { now: () => now };
+  const drawn = [];
+  const scene = { running: false, paused: false, fps: 30, speed: 1, time: 0, renderAt: (t) => drawn.push(t), videos: [], sounds: [] };
+  const Scene = ctx.WE.Scene.prototype;
+  Scene.start.call(scene);
+  for (let i = 1; i <= 60; i++) { const f = pending; pending = null; now = (i * 1000) / 60; f(now); }
+  Scene.setPaused.call(scene, true);
+  const f = pending; pending = null; f(now += 16);
+  assert.strictEqual(pending, null, "nothing scheduled while paused");
+  now += 60_000;
+  Scene.setPaused.call(scene, false);
+  assert.ok(pending, "frames start again");
+  const before = drawn.at(-1);
+  for (let i = 1; i <= 30; i++) { const g = pending; pending = null; now += 1000 / 60; g(now); }
+  assert.ok(drawn.at(-1) - before < 0.6, `moved ${drawn.at(-1) - before} s in half a second`);
+});

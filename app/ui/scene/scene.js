@@ -20,8 +20,10 @@ class Assets {
   }
   roots() { return [this.base, ...this.effectRoots, this.stock].filter((r) => r != null); }
   addEffectRoot(root) { if (!this.effectRoots.includes(root)) this.effectRoots.push(root); }
-  // Effect folders join the search path as they're found, so a miss isn't remembered.
-  async find(path) {
+  // Effect folders join the search path as they're found, so a miss isn't remembered. Only text
+  // (JSON, shaders) stays cached: binary files are decoded once by their caller (the texture cache,
+  // the font cache), and keeping their bytes too would double the scene's memory.
+  async find(path, keep = true) {
     const hit = this.cache.get(path);
     if (hit) return hit;
     const url = (root) => root + path.split("/").map(encodeURIComponent).join("/");
@@ -30,13 +32,13 @@ class Assets {
       try { r = await fetch(url(root)); } catch {}
       if (r && r.ok) {
         const buf = await r.arrayBuffer();
-        this.cache.set(path, buf);
+        if (keep) this.cache.set(path, buf);
         return buf;
       }
     }
     return null;
   }
-  async bytes(path) { const b = await this.find(path); return b && new Uint8Array(b); }
+  async bytes(path) { const b = await this.find(path, false); return b && new Uint8Array(b); }
   async text(path) {
     const b = await this.find(path);
     return b && new TextDecoder().decode(b).replace(/^﻿/, "");
@@ -898,7 +900,13 @@ WE.Scene = class {
 
   async program(source, combos) {
     const key = source.name + JSON.stringify(Object.entries(combos).sort());
-    if (!this.programs.has(key)) this.programs.set(key, WE.buildProgram(this.gl, source, combos));
+    // A failure is kept too, so a shader that doesn't compile isn't compiled again for every pass.
+    if (!this.programs.has(key)) {
+      let p;
+      try { p = Promise.resolve(WE.buildProgram(this.gl, source, combos)); } catch (e) { p = Promise.reject(e); }
+      p.catch(() => {});
+      this.programs.set(key, p);
+    }
     return this.programs.get(key);
   }
 
@@ -1227,17 +1235,23 @@ ${fs}`]]) {
     this.running = true;
     // Frames land on a fixed grid of 1/fps, whatever the display's refresh rate. The clock advances
     // by the real time since the last drawn frame, so skipped display frames still count.
+    // While paused nothing is scheduled at all; setPaused(false) starts the frames again.
     let clock = this.time, last = performance.now(), due = 0;
     const tick = (now) => {
       if (!this.running) return;
+      if (this.paused) { this.raf = 0; return; }
       this.raf = requestAnimationFrame(tick);
-      if (this.paused) { last = now; return; }
       if (now < due - 2) return;
       const interval = 1000 / this.fps;
       due = now - due > interval ? now + interval : due + interval;
       clock += Math.min(0.25, (now - last) / 1000) * (this.speed || 1);
       last = now;
       this.renderAt(clock);
+    };
+    this.resumeFrames = () => {
+      if (!this.running || this.raf) return;
+      last = performance.now();
+      this.raf = requestAnimationFrame(tick);
     };
     this.raf = requestAnimationFrame(tick);
   }
@@ -1312,6 +1326,7 @@ ${fs}`]]) {
 
   setPaused(p) {
     this.paused = p;
+    if (!p) this.resumeFrames?.();
     for (const v of this.videos) p ? v.video.pause() : v.video.play().catch(() => {});
     for (const s of this.sounds) s.setPaused?.(p);
   }
