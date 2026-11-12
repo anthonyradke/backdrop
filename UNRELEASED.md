@@ -55,3 +55,4 @@ this list into the release notes and empties it for the next batch.
   library, keeping its name, settings and place (switch in Settings)
 - A schedule in Settings changes the wallpaper at set times of day, on all displays or on one
 - With a different wallpaper on each display, each display can have its own rotation list
+- Settings can name programs that pause or mute the wallpapers while they run

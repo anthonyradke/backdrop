@@ -22,6 +22,8 @@ const COMMANDS: &[&str] = &[
     "set_in_rotation",
     "set_in_display_rotation",
     "set_schedule",
+    "set_app_rules",
+    "running_apps",
     "next_wallpaper",
     "save_frame",
     "reset_settings",

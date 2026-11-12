@@ -36,7 +36,8 @@ Displays and playback
 - A separate wallpaper per display, the same one on every display, or one spanned across all of them.
 - Fill, fit, fit-height, stretch and center scaling, playback speed from 0.5× to 2×, optional audio.
 - Playback pauses when a window covers the wallpaper, when another app is in front, on battery, with battery
-  saver on, and while the screen is locked.
+  saver on, and while the screen is locked. Chosen programs (a game, a screen recorder) can pause or mute
+  the wallpapers while they run.
 - A full-resolution frame of each moving wallpaper is set as the Windows wallpaper, so the desktop matches before
   Backdrop starts.
 - Rotation on a timer, in order or shuffled, with a random pick at startup or after waking from sleep. With a

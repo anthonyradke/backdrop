@@ -11,6 +11,7 @@
 //! - `after_close`: repaint the desktop after a player window closes
 //! - `steam_dir`: where Steam is installed
 //! - `local_minutes`: the local time of day, for the schedule
+//! - `running_exes`: the file names of running programs, for the app rules
 //! - `on_battery`, `low_power`, `locked`, `cleanup`
 
 #[cfg(windows)]

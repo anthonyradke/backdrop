@@ -424,3 +424,22 @@ pub fn local_minutes() -> u16 {
     let t = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
     t.wHour * 60 + t.wMinute
 }
+
+/// The file names (lowercase, e.g. `obs64.exe`) of every running process, for the app rules.
+pub fn running_exes() -> HashSet<String> {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS};
+    let mut out = HashSet::new();
+    unsafe {
+        let Ok(snap) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else { return out };
+        let mut e = PROCESSENTRY32W { dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32, ..Default::default() };
+        let mut more = Process32FirstW(snap, &mut e).is_ok();
+        while more {
+            let n = e.szExeFile.iter().position(|&c| c == 0).unwrap_or(e.szExeFile.len());
+            out.insert(String::from_utf16_lossy(&e.szExeFile[..n]).to_lowercase());
+            more = Process32NextW(snap, &mut e).is_ok();
+        }
+        let _ = CloseHandle(snap);
+    }
+    out
+}

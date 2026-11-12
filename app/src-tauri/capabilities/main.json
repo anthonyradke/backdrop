@@ -48,6 +48,8 @@
     "allow-item-properties",
     "allow-set-item-properties",
     "allow-set-in-display-rotation",
-    "allow-set-schedule"
+    "allow-set-schedule",
+    "allow-set-app-rules",
+    "allow-running-apps"
   ]
 }

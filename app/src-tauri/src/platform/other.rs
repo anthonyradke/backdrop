@@ -67,3 +67,7 @@ pub fn steam_dir() -> Option<std::path::PathBuf> {
 pub fn local_minutes() -> u16 {
     ((crate::common::now().rem_euclid(86_400)) / 60) as u16
 }
+
+pub fn running_exes() -> HashSet<String> {
+    HashSet::new()
+}

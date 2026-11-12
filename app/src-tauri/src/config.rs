@@ -48,6 +48,21 @@ impl Default for Rotation {
     }
 }
 
+/// What happens to the wallpapers while a program runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AppAction {
+    Pause,
+    Mute,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppRule {
+    /// The program's file name, lowercase (`obs64.exe`).
+    pub exe: String,
+    pub action: AppAction,
+}
+
 /// A time of day when the wallpaper changes to a chosen one.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -87,6 +102,8 @@ pub struct Config {
     pub pause_low_power: bool,
     /// Pause while the screen is locked.
     pub pause_locked: bool,
+    /// Programs that pause or mute the wallpapers while they run.
+    pub app_rules: Vec<AppRule>,
     /// UI language code (`en`, `es`, `de`, `zh-Hans`); empty = follow the system.
     pub language: String,
     /// Import new versions of workshop wallpapers when Steam downloads an update.
@@ -112,6 +129,7 @@ impl Default for Config {
             pause_battery: true,
             pause_low_power: true,
             pause_locked: true,
+            app_rules: vec![],
             language: String::new(),
             workshop_updates: true,
             rotation: Rotation::default(),

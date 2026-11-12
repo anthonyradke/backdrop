@@ -351,6 +351,31 @@ pub fn set_in_display_rotation(core: State<'_, Core>, ids: Vec<String>, display:
     Ok(())
 }
 
+/// Replaces the programs that pause or mute the wallpapers while they run.
+#[tauri::command]
+pub fn set_app_rules(core: State<'_, Core>, rules: Vec<config::AppRule>) -> Result<(), String> {
+    let mut clean: Vec<config::AppRule> = vec![];
+    for mut r in rules {
+        r.exe = r.exe.trim().to_lowercase();
+        if r.exe.is_empty() || r.exe.contains(['/', '\\']) {
+            return Err("bad program name".into());
+        }
+        if !clean.iter().any(|c| c.exe == r.exe) {
+            clean.push(r);
+        }
+    }
+    core.update_config(|c| c.app_rules = clean);
+    Ok(())
+}
+
+/// The programs running now, for picking one to add a rule for.
+#[tauri::command]
+pub async fn running_apps() -> Result<Vec<String>, String> {
+    let mut v: Vec<String> = tauri::async_runtime::spawn_blocking(crate::platform::running_exes).await.map_err(|e| e.to_string())?.into_iter().filter(|e| e.ends_with(".exe")).collect();
+    v.sort();
+    Ok(v)
+}
+
 /// Replaces the schedule: the times of day the wallpaper changes, each to a chosen wallpaper.
 #[tauri::command]
 pub fn set_schedule(core: State<'_, Core>, slots: Vec<config::Slot>) -> Result<(), String> {

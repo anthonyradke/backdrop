@@ -435,6 +435,8 @@ pub fn run() {
             commands::set_in_rotation,
             commands::set_in_display_rotation,
             commands::set_schedule,
+            commands::set_app_rules,
+            commands::running_apps,
             commands::next_wallpaper,
             commands::save_frame,
             commands::reset_settings,

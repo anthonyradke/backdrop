@@ -365,6 +365,14 @@ const actions = {
     const now = new Date();
     return saveSchedule([...schedule(), { at: (now.getHours() + 1) % 24 * 60, item: sel, display: null }]);
   },
+  appRuleAdd: () => {
+    const name = $("#app-new")?.value.trim().toLowerCase();
+    if (!name) return;
+    const exe = name.endsWith(".exe") ? name : `${name}.exe`;
+    return saveRules([...appRules().filter((r) => r.exe !== exe), { exe, action: "pause" }]);
+  },
+  appRuleAction: (el) => saveRules(appRules().map((r, i) => (i === Number(el.dataset.i) ? { ...r, action: el.dataset.v } : r))),
+  appRuleRemove: (el) => saveRules(appRules().filter((_, i) => i !== Number(el.dataset.i))),
   schedRemove: (el) => saveSchedule(schedule().filter((_, i) => i !== Number(el.dataset.i))),
   next: () => call("next_wallpaper"),
   remove: async (el) => {
@@ -465,6 +473,8 @@ document.addEventListener("input", (ev) => {
 document.addEventListener("keydown", (ev) => {
   if (S.tab === "workshop" && S.ws.open && ev.key === "Tab") {
     trapTab(ev, $("#page .dialog"));
+  } else if (ev.target.id === "app-new" && ev.key === "Enter") {
+    Promise.resolve(actions.appRuleAdd()).catch(() => {});
   } else if (ev.target.id === "ws-search" && ev.key === "Enter") {
     S.ws.search = ev.target.value;
     S.ws.draft = null;
@@ -505,6 +515,7 @@ document.addEventListener("focusout", async (ev) => {
 const REASON = {
   manual: "Paused",
   locked: "Paused (locked)",
+  app: "Paused (app running)",
   battery: "Paused (on battery)",
   lowPower: "Paused (low power)",
   covered: "Paused (covered)",
@@ -1133,6 +1144,32 @@ const row = (what, hint, control) =>
   `<div class="set-row"><div class="what">${what}${hint ? `<div class="hint">${hint}</div>` : ""}</div>${control.replace('aria-label="{name}"', `aria-label="${esc(what.replace(/<[^>]*>/g, ""))}"`)}</div>`;
 const section = (title, sub, rows) => `<div class="sec"><h3>${title}</h3>${sub ? `<p>${sub}</p>` : ""}<div class="card">${rows}</div></div>`;
 
+// ---------- app rules ----------
+// Programs that pause or mute the wallpapers while they run (a game, OBS, a video call).
+
+const appRules = () => S.state.config.appRules ?? [];
+const saveRules = (rules) => call("set_app_rules", { rules });
+
+// The running programs fill the add field's suggestions; they're listed when it's focused.
+document.addEventListener("focusin", async (ev) => {
+  if (ev.target.id !== "app-new") return;
+  S.running = await invoke("running_apps").catch(() => []);
+  const list = $("#app-list");
+  if (list) list.replaceChildren(...S.running.map((exe) => Object.assign(document.createElement("option"), { value: exe })));
+});
+
+function appRuleRows() {
+  const rows = appRules().map((r, i) => `<div class="set-row" data-key="ar-${esc(r.exe)}">
+      <div class="what mono">${esc(r.exe)}</div>
+      ${seg("appRuleAction", r.action, [["pause", tr("Pause")], ["mute", tr("Mute")]]).replace(/data-act="appRuleAction"/g, `data-act="appRuleAction" data-i="${i}"`)}
+      <button class="btn sm icon ghost press" data-act="appRuleRemove" data-i="${i}" title="${esc(tr("Remove"))}" aria-label="${esc(tr("Remove"))}">${ICON.close}</button>
+    </div>`);
+  rows.push(`<div class="set-row" data-key="ar-new"><div class="what">${tr("While these apps run")}<div class="hint">${tr("Pause or mute the wallpapers while a program is open, for example a game or a screen recorder.")}</div></div>
+      <input id="app-new" class="app-new" list="app-list" placeholder="obs64.exe" spellcheck="false" aria-label="${esc(tr("Program"))}"><datalist id="app-list"></datalist>
+      <button class="btn sm press" data-act="appRuleAdd">${ICON.plus}${tr("Add")}</button></div>`);
+  return rows.join("");
+}
+
 // ---------- schedule ----------
 
 const schedule = () => S.state.config.schedule ?? [];
@@ -1204,6 +1241,7 @@ function renderSettings() {
       row(tr("Pause on battery"), "", offOn("pauseBattery", c.pauseBattery)),
       row(tr("Pause with battery saver on"), "", offOn("pauseLowPower", c.pauseLowPower)),
       row(tr("Pause when locked"), "", offOn("pauseLocked", c.pauseLocked)),
+      appRuleRows(),
     ].join(""))}
     ${section(tr("App"), "", [
       u ? row(tr("Updates"), updHint, updBtn) : "",

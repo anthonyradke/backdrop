@@ -8,7 +8,9 @@ How Backdrop puts a player behind the desktop icons, renders Wallpaper Engine sc
 Each display showing a moving wallpaper gets one borderless WebView window that plays it with hardware
 video decoding. A spanned wallpaper gets a single window over the rectangle around all displays, so it
 needs one decoder and stays in sync across them. A one-second engine loop (`engine.rs`) assigns players to
-displays, applies native image wallpapers, and handles pausing.
+displays, applies native image wallpapers, and handles pausing. With app rules set, it also lists the
+running programs every three seconds (a ToolHelp snapshot) and pauses or mutes the players while a
+listed one runs.
 
 ## Scenes (`scene.rs`, `audio.rs`, `app/ui/scene/`)
 

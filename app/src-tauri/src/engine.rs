@@ -3,7 +3,7 @@
 //! images), closes windows nobody needs, and pauses players that can't be seen. A spanned wallpaper
 //! goes through the same steps once, with the rectangle around all the displays as its one display.
 
-use crate::config::Fit;
+use crate::config::{AppAction, Fit};
 use crate::{log, platform, Core};
 use crate::common::{Item, Kind};
 use serde::Serialize;
@@ -44,7 +44,7 @@ pub struct DisplayView {
     pub display: Display,
     pub item: Option<String>,
     pub status: Status,
-    /// Why it's paused: manual, locked, battery, lowPower, covered or focused.
+    /// Why it's paused: manual, locked, app, battery, lowPower, covered or focused.
     pub reason: Option<&'static str>,
 }
 
@@ -108,6 +108,8 @@ struct Engine {
     failed: HashMap<String, Instant>,
     /// Players rebuilt after Explorer destroyed them, for unique window labels.
     respawns: u32,
+    /// Running programs (for the app rules), and when they were last listed.
+    running: (HashSet<String>, Option<Instant>),
 }
 
 pub fn spawn(app: AppHandle) -> mpsc::Sender<()> {
@@ -128,6 +130,7 @@ pub fn spawn(app: AppHandle) -> mpsc::Sender<()> {
                 native_failed: HashMap::new(),
                 failed: HashMap::new(),
                 respawns: 0,
+                running: (HashSet::new(), None),
             };
             while let Ok(()) | Err(mpsc::RecvTimeoutError::Timeout) = rx.recv_timeout(Duration::from_secs(1)) {
                 while rx.try_recv().is_ok() {}
@@ -314,6 +317,14 @@ impl Engine {
             self.battery_checked = Some(Instant::now());
         }
         let manual = core.manual_pause.load(Ordering::Relaxed);
+        // Listing processes takes a few milliseconds, so only with rules, and every few seconds.
+        if cfg.app_rules.is_empty() {
+            self.running = (HashSet::new(), None);
+        } else if self.running.1.is_none_or(|t| t.elapsed() > Duration::from_secs(3)) {
+            self.running = (platform::running_exes(), Some(Instant::now()));
+        }
+        let rule_on = |action| cfg.app_rules.iter().any(|r| r.action == action && self.running.0.contains(&r.exe));
+        let (app_pause, app_mute) = (rule_on(AppAction::Pause), rule_on(AppAction::Mute));
         let locked = cfg.pause_locked && platform::locked();
         let focused =
             if cfg.pause_focused && !self.slots.is_empty() { platform::focused(&self.app, &displays) } else { HashSet::new() };
@@ -378,6 +389,7 @@ impl Engine {
                     reason = [
                         (manual, "manual"),
                         (locked, "locked"),
+                        (app_pause, "app"),
                         (cfg.pause_battery && self.on_battery, "battery"),
                         (cfg.pause_low_power && self.low_power, "lowPower"),
                         (cfg.pause_covered && self.covered.contains(&d.key), "covered"),
@@ -393,7 +405,7 @@ impl Engine {
                         kind: item.kind,
                         src: crate::library::Library::player_src(item),
                         fit: cfg.fit,
-                        muted: cfg.muted,
+                        muted: cfg.muted || app_mute,
                         volume: cfg.volume.clamp(0.0, 1.0),
                         speed: cfg.speed.clamp(0.25, 2.0),
                         paused,

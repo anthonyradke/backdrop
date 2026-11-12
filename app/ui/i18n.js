@@ -284,6 +284,13 @@ const STRINGS = {
     "Deleted wallpaper": "Fondo eliminado",
     "No times set": "Sin horas",
     "Add a time": "Añadir una hora",
+    "Paused (app running)": "En pausa (aplicación abierta)",
+    "Pause": "Pausar",
+    "Mute": "Silenciar",
+    "While these apps run": "Mientras se ejecutan estas aplicaciones",
+    "Pause or mute the wallpapers while a program is open, for example a game or a screen recorder.": "Pausa o silencia los fondos mientras un programa está abierto, por ejemplo un juego o una grabadora de pantalla.",
+    "Program": "Programa",
+    "Add": "Añadir",
   },
 
   de: {
@@ -566,6 +573,13 @@ const STRINGS = {
     "Deleted wallpaper": "Gelöschtes Hintergrundbild",
     "No times set": "Keine Uhrzeiten",
     "Add a time": "Uhrzeit hinzufügen",
+    "Paused (app running)": "Pausiert (App läuft)",
+    "Pause": "Pausieren",
+    "Mute": "Stumm",
+    "While these apps run": "Während diese Apps laufen",
+    "Pause or mute the wallpapers while a program is open, for example a game or a screen recorder.": "Pausiert oder stummt die Hintergründe, solange ein Programm geöffnet ist, etwa ein Spiel oder eine Bildschirmaufnahme.",
+    "Program": "Programm",
+    "Add": "Hinzufügen",
   },
 
   "zh-Hans": {
@@ -848,6 +862,13 @@ const STRINGS = {
     "Deleted wallpaper": "已删除的壁纸",
     "No times set": "未设置时间",
     "Add a time": "添加时间",
+    "Paused (app running)": "已暂停（应用正在运行）",
+    "Pause": "暂停",
+    "Mute": "静音",
+    "While these apps run": "当这些应用运行时",
+    "Pause or mute the wallpapers while a program is open, for example a game or a screen recorder.": "在某个程序打开时暂停壁纸或将其静音，例如游戏或录屏软件。",
+    "Program": "程序",
+    "Add": "添加",
   },
 };
 
