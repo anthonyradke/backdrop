@@ -20,3 +20,5 @@ this list into the release notes and empties it for the next batch.
   the new one fails to load or the change is quick
 - A scene's still frame is always taken from that scene, and a video paused while loading stays paused
 - Workshop items and zip files can no longer point Backdrop at files outside their own folder
+- A scene whose script never finishes, or whose particles nest or burst without limit, no longer
+  freezes the wallpaper or pins a CPU core

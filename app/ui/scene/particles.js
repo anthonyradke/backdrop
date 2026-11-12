@@ -5,6 +5,8 @@
 var WE = window.WE || (window.WE = {});
 
 const rnd = (a, b) => a + Math.random() * (b - a);
+// Limits on child particle systems, far past what real wallpapers use.
+const MAX_CHILD_DEPTH = 4, MAX_SYSTEMS = 64;
 const vec = (v, d = [0, 0, 0]) => {
   if (v === undefined || v === null) return d.slice();
   const p = WE.parseVec(v);
@@ -493,7 +495,9 @@ class System {
       const burst = num(em.d.instantaneous, 0);
       if (burst && !em.spent) {
         em.spent = true;
-        for (let i = 0; i < burst; i++) this.spawn(inst, em);
+        // spawn() stops adding at maxEach, but a huge count would still loop that many times.
+        const n = Math.min(burst, this.maxEach - inst.live.length);
+        for (let i = 0; i < n; i++) this.spawn(inst, em);
       }
       em.acc += em.rate * this.rateK * dt;
       const n = Math.min(Math.floor(em.acc), this.maxEach);
@@ -662,12 +666,14 @@ WE.ParticleLayer = class extends WE.LayerBase {
     // The system file's flags: bit 2 places it in the 3D camera.
     if ((num(def.flags, 0) & 4) !== 0) this.perspective = true;
     this.parts = [];
-    this.root = await this.addSystem(def, this.over, 1, "static");
+    this.root = await this.addSystem(def, this.over, 1, "static", [d.particle]);
     // A saved start time means the scene opens as if it had been running that long.
     const warm = Math.min(5, num(def.starttime, 0));
     for (let t = 0; t < warm; t += 1 / 20) this.root.step(1 / 20);
   }
-  async addSystem(def, over, instances, type) {
+  // `chain` holds the files of the systems above this one, so a system that lists itself (or an
+  // ancestor) as a child can't recurse forever, and nesting stops at MAX_CHILD_DEPTH.
+  async addSystem(def, over, instances, type, chain = []) {
     const s = this.scene;
     const sys = new System(this, def, over, instances);
     sys.type = type;
@@ -691,12 +697,16 @@ WE.ParticleLayer = class extends WE.LayerBase {
       frame: tex.frames?.length ? [tex.frames[0].w / tex.texWidth, tex.frames[0].h / tex.texHeight, tex.frames.length, tex.height / tex.width] : [1, 1, 1, tex.height / tex.width],
     });
     for (const c of def.children || []) {
+      if (chain.length >= MAX_CHILD_DEPTH || chain.includes(c.name) || (this.systemCount = (this.systemCount || 0) + 1) > MAX_SYSTEMS) {
+        s.warnOnce(`particles "${this.name}": child system ${c.name} skipped (nested too deep, or loops)`);
+        continue;
+      }
       const child = await s.assets.json(c.name);
       if (!child) continue;
       const type = c.type || "static";
       // A child's maxcount is how many copies of it can run at once.
       const count = type === "static" ? 1 : Math.max(1, Math.min(2000, num(c.maxcount, 1)));
-      const sub = await this.addSystem(child, over, count, type);
+      const sub = await this.addSystem(child, over, count, type, [...chain, c.name]);
       sys.children.push({ system: sub, type });
     }
     return sys;

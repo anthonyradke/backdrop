@@ -429,9 +429,21 @@ async function startScripts(scene) {
 
 WE.startScripts = (scene) => (scene.scripts?.length ? startScripts(scene) : Promise.resolve());
 
+// A tick that hasn't come back by then means a script is stuck (an endless loop, say). Its Worker
+// would hold a CPU core forever, so it's stopped; the scene keeps running without its scripts.
+const SCRIPT_TIMEOUT_MS = 2000;
+
 WE.tickScripts = function (scene) {
-  if (!scene.worker || scene.scriptBusy) return;
+  if (!scene.worker) return;
+  if (scene.scriptBusy) {
+    if (performance.now() - scene.scriptSent > SCRIPT_TIMEOUT_MS) {
+      scene.warn(`scripts: stopped after a frame took more than ${SCRIPT_TIMEOUT_MS / 1000} s`);
+      WE.stopScripts(scene);
+    }
+    return;
+  }
   scene.scriptBusy = true;
+  scene.scriptSent = performance.now();
   scene.worker.postMessage({
     type: "tick", time: scene.time, dt: scene.dt, day: scene.daytime, pointer: scene.pointer, down: !!scene.pointerDown,
     hits: [...(scene.cursorLayers || [])].filter((l) => underCursor(scene, l)).map((l) => l.id),
