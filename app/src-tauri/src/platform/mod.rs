@@ -8,6 +8,8 @@
 //! - `covered`: which displays' players can't currently be seen (fullscreen or maximized apps)
 //! - `focused`: displays where another app's window is in front
 //! - `desktop_pressed`: whether the left button is down with the desktop itself under the cursor
+//! - `after_close`: repaint the desktop after a player window closes
+//! - `steam_dir`: where Steam is installed
 //! - `on_battery`, `low_power`, `locked`, `cleanup`
 
 #[cfg(windows)]

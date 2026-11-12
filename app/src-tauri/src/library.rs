@@ -56,10 +56,6 @@ impl Library {
         }
     }
 
-    pub fn media_path(&self, item: &Item) -> PathBuf {
-        self.dir(&item.id).join(&item.file)
-    }
-
     pub fn has_thumb(&self, id: &str) -> bool {
         self.dir(id).join("thumb.jpg").is_file()
     }

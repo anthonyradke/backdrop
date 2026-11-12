@@ -90,7 +90,8 @@ pub async fn check(app: &AppHandle) {
                 s.error = None;
             });
         }
-        // Being offline is normal; keep whatever we knew and only say why when someone asked.
+        // Being offline is normal: keep whatever we knew. The error is kept for the window, which
+        // only mentions it after a check someone asked for.
         Err(e) => {
             crate::log(format!("update check failed: {e}"));
             set(app, |s| s.error = Some(e.to_string()));
