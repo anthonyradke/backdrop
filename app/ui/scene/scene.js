@@ -1284,6 +1284,7 @@ ${fs}`]]) {
       const [r, g, b] = c.getImageData(0, 0, 1, 1).data;
       const main = [r / 255, g / 255, b / 255], light = (r * 0.3 + g * 0.59 + b * 0.11) / 255 > 0.5;
       bmp.close();
+      this.coverTrack = now.track;
       send("mediaThumbnailChanged", { hasThumbnail: true, primaryColor: main, secondaryColor: main, tertiaryColor: main, textColor: light ? [0, 0, 0] : [1, 1, 1], highContrastColor: light ? [0, 0, 0] : [1, 1, 1] });
     } catch (e) { this.warnOnce(`album cover: ${e.message}`); }
   }

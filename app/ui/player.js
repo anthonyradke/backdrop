@@ -260,7 +260,7 @@ setInterval(async () => {
 setInterval(async () => {
   const scene = el?.scene;
   if (!scene?.running || scene.paused || !scene.wantsMedia) return;
-  scene.setMedia(await invoke("now_playing").catch(() => null));
+  scene.setMedia(await invoke("now_playing", { have: scene.coverTrack ?? null }).catch(() => null));
 }, 2000);
 
 me.listen("player:update", (e) => show(e.payload));

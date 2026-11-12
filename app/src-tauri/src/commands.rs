@@ -393,8 +393,8 @@ pub fn audio_spectrum() -> Vec<f32> {
 
 /// The current track, for scenes that show it. The session API blocks, so it stays off the main thread.
 #[tauri::command]
-pub async fn now_playing() -> Result<Option<crate::nowplaying::NowPlaying>, String> {
-    tauri::async_runtime::spawn_blocking(crate::nowplaying::read).await.map_err(|e| e.to_string())
+pub async fn now_playing(have: Option<String>) -> Result<Option<crate::nowplaying::NowPlaying>, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::nowplaying::read(have.as_deref())).await.map_err(|e| e.to_string())
 }
 
 /// Players report problems (a video that won't decode, autoplay refused) into backdrop.log.
