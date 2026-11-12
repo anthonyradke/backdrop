@@ -38,3 +38,5 @@ this list into the release notes and empties it for the next batch.
 - A scene comes back on its own after a GPU reset or driver update instead of staying black
 - Scenes free the fonts and GPU memory they use when they're replaced, and scripts that keep making
   and removing layers no longer leak memory
+- A Workshop download that stalls, or a helper that doesn't answer, no longer keeps Steam showing
+  Wallpaper Engine as running; pressing Download twice doesn't start a second download

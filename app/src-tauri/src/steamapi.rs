@@ -36,12 +36,47 @@ fn set_progress(id: &str, p: Option<[u64; 2]>) {
     };
 }
 
+/// A line from the helper.
+#[derive(Debug, PartialEq)]
+enum Line {
+    Subscribed,
+    Progress(u64, u64),
+    Installed,
+    Error(String),
+    /// Anything else (Steam's DLL prints to stdout too).
+    Other,
+}
+
+fn parse(line: &str) -> Line {
+    let mut parts = line.split(' ');
+    match parts.next() {
+        Some("subscribed") if line == "subscribed" => Line::Subscribed,
+        Some("installed") if line == "installed" => Line::Installed,
+        Some("progress") => match parts.map(str::parse::<u64>).collect::<Result<Vec<_>, _>>().as_deref() {
+            Ok([done, total]) => Line::Progress(*done, *total),
+            _ => Line::Other,
+        },
+        Some("error") if line.len() > 6 => Line::Error(line[6..].to_string()),
+        _ => Line::Other,
+    }
+}
+
+/// Stops a helper that's no longer wanted, without waiting for it here.
+fn stop(mut child: std::process::Child) {
+    let _ = child.kill();
+    std::thread::spawn(move || child.wait());
+}
+
 /// Subscribes to `id` through a helper process. Returns once Steam has taken the subscription (the
 /// download carries on, and the workshop sync loop imports it when it lands), or with an error if
 /// that can't happen this way, so the caller can fall back to opening the item in Steam.
 pub fn download(app: &AppHandle, id: &str) -> Result<(), String> {
     if !cfg!(windows) {
         return Err("only on Windows".into());
+    }
+    // A second click while the first download runs: that one carries on.
+    if progress().contains_key(id) {
+        return Ok(());
     }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut cmd = std::process::Command::new(exe);
@@ -65,19 +100,25 @@ pub fn download(app: &AppHandle, id: &str) -> Result<(), String> {
                 break;
             }
         }
-        let _ = child.wait();
     });
 
     // Subscribing is one round trip to Steam's servers; the helper gives up on its own after 15s.
-    // Steam's DLL prints its own lines to stdout too, so skip whatever isn't ours.
+    // One that hasn't answered by the deadline is stuck (inside Steam's init, say) and is stopped,
+    // or Steam would go on showing Wallpaper Engine as running.
     let deadline = Instant::now() + Duration::from_secs(25);
     loop {
         let left = deadline.saturating_duration_since(Instant::now());
-        match rx.recv_timeout(left) {
-            Ok(l) if l == "subscribed" => break,
-            Ok(l) if l.starts_with("error ") => return Err(l[6..].to_string()),
+        match rx.recv_timeout(left).map(|l| parse(&l)) {
+            Ok(Line::Subscribed) => break,
+            Ok(Line::Error(e)) => {
+                stop(child);
+                return Err(e);
+            }
             Ok(_) => {}
-            Err(_) => return Err("the download helper didn't answer".into()),
+            Err(_) => {
+                stop(child);
+                return Err("the download helper didn't answer".into());
+            }
         }
     }
     log(format!("workshop item {id}: subscribed through Steam, downloading"));
@@ -85,20 +126,17 @@ pub fn download(app: &AppHandle, id: &str) -> Result<(), String> {
     let (app, id) = (app.clone(), id.to_string());
     std::thread::spawn(move || {
         for line in rx {
-            let mut parts = line.split(' ');
-            match parts.next() {
-                Some("progress") => {
-                    let n: Vec<u64> = parts.filter_map(|p| p.parse().ok()).collect();
-                    if let [done, total] = n[..] {
-                        set_progress(&id, Some([done, total]));
-                        app.state::<Core>().emit_state();
-                    }
+            match parse(&line) {
+                Line::Progress(done, total) => {
+                    set_progress(&id, Some([done, total]));
+                    app.state::<Core>().emit_state();
                 }
-                Some("installed") => log(format!("workshop item {id}: Steam finished downloading")),
-                Some("error") if line.len() > 6 => log(format!("workshop item {id}: {}", &line[6..])),
+                Line::Installed => log(format!("workshop item {id}: Steam finished downloading")),
+                Line::Error(e) => log(format!("workshop item {id}: {e}")),
                 _ => {}
             }
         }
+        let _ = child.wait();
         // The helper exited. Steam keeps the subscription either way, and the sync loop takes the
         // item from Steam's folder whenever it's complete.
         set_progress(&id, None);
@@ -153,6 +191,8 @@ mod imp {
     const NEEDS_UPDATE: u32 = 8;
     const DOWNLOADING: u32 = 16;
     const DOWNLOAD_PENDING: u32 = 32;
+    /// How long a download may sit without any bytes arriving.
+    const STALLED: Duration = Duration::from_secs(5 * 60);
 
     /// The flat C API, the part we use.
     struct Api {
@@ -261,6 +301,8 @@ mod imp {
 
         let t = Instant::now();
         let (mut last, mut said) = ([0, u64::MAX], Instant::now());
+        // When the downloaded size last changed, or Steam last said it's working on it.
+        let mut moving = Instant::now();
         loop {
             let st = api.state(id);
             if st & INSTALLED != 0 && st & (NEEDS_UPDATE | DOWNLOADING | DOWNLOAD_PENDING) == 0 {
@@ -269,6 +311,14 @@ mod imp {
             }
             let (mut done, mut total) = (0u64, 0u64);
             unsafe { (api.info)(api.ugc, id, &mut done, &mut total) };
+            if done != last[0] || (st & (DOWNLOADING | DOWNLOAD_PENDING) != 0 && done == 0) {
+                moving = Instant::now();
+            }
+            // Removed from the workshop, out of disk space, or Steam lost interest: there's no sense
+            // in holding the helper (and "Wallpaper Engine running" in Steam) open for hours.
+            if moving.elapsed() > STALLED {
+                return Err(format!("Steam hasn't moved this download for {} minutes; leaving it to Steam", STALLED.as_secs() / 60));
+            }
             // Every whole percent, and now and then regardless so a gone Backdrop is noticed.
             let pct = |d: u64, t: u64| (d * 100).checked_div(t).unwrap_or(0);
             if pct(done, total) != pct(last[0], last[1]) || total != last[1] || said.elapsed() > Duration::from_secs(10) {
@@ -280,5 +330,22 @@ mod imp {
             }
             std::thread::sleep(Duration::from_millis(500));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn helper_lines() {
+        assert_eq!(parse("subscribed"), Line::Subscribed);
+        assert_eq!(parse("installed"), Line::Installed);
+        assert_eq!(parse("progress 10 200"), Line::Progress(10, 200));
+        assert_eq!(parse("progress 10"), Line::Other);
+        assert_eq!(parse("progress a b"), Line::Other);
+        assert_eq!(parse("error Steam isn't running"), Line::Error("Steam isn't running".into()));
+        assert_eq!(parse("[S_API] SteamAPI_Init(): Loaded"), Line::Other);
+        assert_eq!(parse("subscribed but not"), Line::Other);
     }
 }
