@@ -345,6 +345,69 @@ pub fn save_frame(core: State<'_, Core>, id: String, data: String) -> Result<(),
     Ok(())
 }
 
+/// A scene's or HTML wallpaper's own settings: the `general.properties` (and `localization`) from
+/// its project.json, with the values the user picked.
+#[derive(Serialize)]
+pub struct ItemProperties {
+    properties: serde_json::Value,
+    localization: serde_json::Value,
+    values: std::collections::BTreeMap<String, serde_json::Value>,
+}
+
+#[tauri::command]
+pub fn item_properties(core: State<'_, Core>, id: String) -> Result<Option<ItemProperties>, String> {
+    let (dir, item) = {
+        let lib = core.library.lock().unwrap();
+        let item = lib.items.get(&id).cloned().ok_or("not in the library")?;
+        (lib.dir(&id), item)
+    };
+    let project = match item.kind {
+        common::Kind::Scene => dir.join(crate::scene::DIR).join("project.json"),
+        common::Kind::Web => dir.join("web").join("project.json"),
+        _ => return Ok(None),
+    };
+    let Ok(bytes) = std::fs::read(&project) else { return Ok(None) };
+    // Windows editors leave a byte order mark, which serde refuses.
+    let text = String::from_utf8_lossy(&bytes);
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(text.trim_start_matches('\u{feff}')) else { return Ok(None) };
+    let general = &json["general"];
+    let properties = general["properties"].clone();
+    if !properties.is_object() || properties.as_object().is_some_and(|o| o.is_empty()) {
+        return Ok(None);
+    }
+    Ok(Some(ItemProperties { properties, localization: general["localization"].clone(), values: item.properties }))
+}
+
+/// Sets some of a wallpaper's own properties; a null value goes back to the wallpaper's default,
+/// and `reset` clears them all first.
+#[tauri::command]
+pub fn set_item_properties(
+    core: State<'_, Core>,
+    id: String,
+    values: std::collections::BTreeMap<String, serde_json::Value>,
+    reset: Option<bool>,
+) -> Result<(), String> {
+    {
+        let mut lib = core.library.lock().unwrap();
+        let item = lib.items.get_mut(&id).ok_or("not in the library")?;
+        if reset.unwrap_or(false) {
+            item.properties.clear();
+        }
+        for (k, v) in values {
+            if v.is_null() {
+                item.properties.remove(&k);
+            } else {
+                item.properties.insert(k, v);
+            }
+        }
+        let item = item.clone();
+        lib.save_meta(&item).map_err(|e| e.to_string())?;
+    }
+    core.poke();
+    core.emit_state();
+    Ok(())
+}
+
 /// Puts every setting back to its default, keeping the library.
 #[tauri::command]
 pub fn reset_settings(app: AppHandle, core: State<'_, Core>) {

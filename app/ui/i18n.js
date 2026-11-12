@@ -272,6 +272,7 @@ const STRINGS = {
     "Volume": "Volumen",
     "Search the Workshop": "Buscar en el Workshop",
     "Couldn't load more: {e}": "No se pudo cargar más: {e}",
+    "Properties": "Propiedades",
   },
 
   de: {
@@ -542,6 +543,7 @@ const STRINGS = {
     "Volume": "Lautstärke",
     "Search the Workshop": "Im Workshop suchen",
     "Couldn't load more: {e}": "Weitere konnten nicht geladen werden: {e}",
+    "Properties": "Eigenschaften",
   },
 
   "zh-Hans": {
@@ -812,6 +814,7 @@ const STRINGS = {
     "Volume": "音量",
     "Search the Workshop": "搜索创意工坊",
     "Couldn't load more: {e}": "无法加载更多：{e}",
+    "Properties": "属性",
   },
 };
 

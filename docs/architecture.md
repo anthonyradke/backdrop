@@ -29,6 +29,17 @@ skipped and logged to `backdrop.log`; a scene that can't run at all shows its pr
 the system's output (WASAPI loopback) into frequency bands only while a scene that needs them is on screen,
 and keeps no audio.
 
+## Wallpaper properties
+
+Scenes and HTML wallpapers from Wallpaper Engine declare their own settings in `general.properties` of
+their `project.json`. The library's sidebar shows them (`item_properties`) and saves the values the
+user picks in the item's `meta.json` (`set_item_properties`), so they survive a settings reset. The
+engine passes them to the player with the rest of its parameters. A scene reads them while it loads,
+so a change reloads it; an HTML page gets them live through `webshim.js` as
+`wallpaperPropertyListener.applyUserProperties`, all of them once and then only what changed. A
+property's `condition` is evaluated by a small parser in `app.js` rather than as code, since it comes
+from the download.
+
 ## Desktop attachment (`platform/windows.rs`)
 
 The player window is reparented into Explorer's desktop window, below the icons. Before Windows 11 24H2 this

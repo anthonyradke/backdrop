@@ -393,6 +393,12 @@
           "markdownDescription": "Enables the install_update command without any pre-configured scope."
         },
         {
+          "description": "Enables the item_properties command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-item-properties",
+          "markdownDescription": "Enables the item_properties command without any pre-configured scope."
+        },
+        {
           "description": "Enables the next_wallpaper command without any pre-configured scope.",
           "type": "string",
           "const": "allow-next-wallpaper",
@@ -463,6 +469,12 @@
           "type": "string",
           "const": "allow-set-in-rotation",
           "markdownDescription": "Enables the set_in_rotation command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_item_properties command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-item-properties",
+          "markdownDescription": "Enables the set_item_properties command without any pre-configured scope."
         },
         {
           "description": "Enables the set_paused command without any pre-configured scope.",
@@ -591,6 +603,12 @@
           "markdownDescription": "Denies the install_update command without any pre-configured scope."
         },
         {
+          "description": "Denies the item_properties command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-item-properties",
+          "markdownDescription": "Denies the item_properties command without any pre-configured scope."
+        },
+        {
           "description": "Denies the next_wallpaper command without any pre-configured scope.",
           "type": "string",
           "const": "deny-next-wallpaper",
@@ -661,6 +679,12 @@
           "type": "string",
           "const": "deny-set-in-rotation",
           "markdownDescription": "Denies the set_in_rotation command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_item_properties command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-item-properties",
+          "markdownDescription": "Denies the set_item_properties command without any pre-configured scope."
         },
         {
           "description": "Denies the set_paused command without any pre-configured scope.",

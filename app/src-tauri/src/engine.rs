@@ -70,6 +70,9 @@ pub struct PlayerParams {
     pub web: Option<String>,
     /// The window's rectangle in physical pixels, for scenes that follow the cursor.
     pub rect: [i32; 4],
+    /// The user's values for the wallpaper's own properties (scenes and HTML wallpapers).
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub properties: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 /// A taskbar strip along the bottom of a display, in percent of the player window.
@@ -405,6 +408,7 @@ impl Engine {
                         fallback: core.loopback.as_ref().map(|l| l.base.clone()),
                         web: (item.kind == Kind::Web).then(|| core.loopback.as_ref().map(|l| l.web_base(&item.id))).flatten(),
                         rect: [d.x, d.y, d.width as i32, d.height as i32],
+                        properties: item.properties.clone(),
                     };
                     if self.ensure_player(&core, d, params) {
                         wanted.insert(d.key.clone());

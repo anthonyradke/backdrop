@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-item-properties"
+description = "Enables the set_item_properties command without any pre-configured scope."
+commands.allow = ["set_item_properties"]
+
+[[permission]]
+identifier = "deny-set-item-properties"
+description = "Denies the set_item_properties command without any pre-configured scope."
+commands.deny = ["set_item_properties"]

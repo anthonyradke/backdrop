@@ -23,6 +23,8 @@ const COMMANDS: &[&str] = &[
     "next_wallpaper",
     "save_frame",
     "reset_settings",
+    "item_properties",
+    "set_item_properties",
     "workshop_browse",
     "workshop_subscribed",
     "workshop_subscribe",

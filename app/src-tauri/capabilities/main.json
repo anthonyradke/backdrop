@@ -44,6 +44,8 @@
     "allow-workshop-unhide-all",
     "allow-update-state",
     "allow-check-update",
-    "allow-install-update"
+    "allow-install-update",
+    "allow-item-properties",
+    "allow-set-item-properties"
   ]
 }

@@ -434,6 +434,8 @@ pub fn run() {
             commands::next_wallpaper,
             commands::save_frame,
             commands::reset_settings,
+            commands::item_properties,
+            commands::set_item_properties,
             commands::workshop_browse,
             commands::workshop_subscribed,
             commands::workshop_subscribe,

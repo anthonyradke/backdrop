@@ -238,6 +238,19 @@ main { flex: 1; min-width: 0; display: flex; }
 .card { border-radius: var(--r-xl); box-shadow: inset 0 0 0 1px var(--border); background: var(--card); }
 .row { display: flex; align-items: center; gap: 16px; min-height: 48px; padding: 10px 14px; }
 .row + .row { box-shadow: inset 0 1px 0 var(--border); }
+/* A wallpaper's own properties: label on the left, its control on the right. */
+.group-label .link { float: right; font-size: 12px; padding: 0; }
+.props .prop-row { min-height: 42px; padding: 8px 14px; gap: 12px; }
+.props .prop-row .what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.prop-note { padding: 10px 14px 4px; color: var(--muted-fg); font-size: 12px; }
+.prop-slide { display: flex; align-items: center; gap: 8px; }
+.prop-slide input[type=range] { width: 110px; }
+.prop-slide output { min-width: 32px; text-align: right; color: var(--muted-fg); font-size: 12px; }
+.props input[type=color] { width: 34px; height: 24px; padding: 0; border: 0; border-radius: var(--r); background: none; cursor: pointer; }
+.props input[type=text] { width: 140px; height: 28px; padding: 0 8px; border: 0; outline: none; border-radius: var(--r); background: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--input); color: var(--fg); font: inherit; font-size: 12.5px; }
+.props input[type=text]:focus { box-shadow: inset 0 0 0 1px var(--primary); }
+.props .select { max-width: 150px; }
 .row .what { flex: 1; min-width: 0; font-weight: 500; }
 .row .what .hint { font-weight: 400; }
 .facts { display: grid; grid-template-columns: auto minmax(0, 1fr); margin: 0; font-size: 12.5px; }

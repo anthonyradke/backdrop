@@ -49,7 +49,7 @@ function swap(p) {
     next.src = url(p.src);
   } else if (p.kind === "scene") {
     next = document.createElement("canvas");
-    const scene = new WE.Scene(next, { base: url(p.src), stock: `${BASE}we-assets/`, log: report, screen: [p.rect[2], p.rect[3]] });
+    const scene = new WE.Scene(next, { base: url(p.src), stock: `${BASE}we-assets/`, log: report, screen: [p.rect[2], p.rect[3]], properties: p.properties });
     next.scene = scene;
     const canvas = next;
     // A GPU reset or driver update takes the WebGL context away. The scene is rebuilt on a new
@@ -211,9 +211,13 @@ function grab(src, kind) {
   });
 }
 
+const sameProps = (a, b) => JSON.stringify(a?.properties ?? {}) === JSON.stringify(b?.properties ?? {});
+
 function show(p) {
   if (!p) return;
-  if (!cur || cur.src !== p.src || cur.kind !== p.kind) swap(p);
+  // A scene reads its properties as it loads, so new values mean loading it again; an HTML page
+  // gets them live (below).
+  if (!cur || cur.src !== p.src || cur.kind !== p.kind || (p.kind === "scene" && !sameProps(cur, p))) swap(p);
   cur = p;
   document.getElementById("shades").replaceChildren(...p.shade.map((s) => {
     const strip = document.createElement("div");
@@ -243,10 +247,37 @@ function show(p) {
     el.scene.setAudio?.(p.muted, p.volume);
     el.scene.setPaused(p.paused);
   } else if (el.tagName === "IFRAME") {
-    // HTML wallpapers can listen for this to stop their animation loop.
-    try { el.contentWindow.postMessage({ backdrop: { paused: p.paused, muted: p.muted, volume: p.volume, speed: p.speed } }, "*"); } catch {}
+    // HTML wallpapers can listen for this to stop their animation loop; webshim.js also acts on it.
+    post(el, { paused: p.paused, muted: p.muted, volume: p.volume, speed: p.speed });
+    sendProps(el, p);
   }
 }
+
+const post = (frame, msg) => { try { frame.contentWindow.postMessage({ backdrop: msg }, "*"); } catch {} };
+
+// The page's properties as Wallpaper Engine passes them: every one from its project.json, each
+// with the user's value in place of the default.
+async function sendProps(frame, p) {
+  frame.schema ??= fetch(url(p.src.replace(/[^/]*$/, "") + "project.json")).then((r) => r.json()).then((j) => j?.general?.properties ?? {}, () => ({}));
+  const schema = await frame.schema;
+  if (el !== frame) return;
+  const props = {};
+  for (const [k, def] of Object.entries(schema)) {
+    if (!def || typeof def !== "object") continue;
+    props[k] = { ...def, value: k in (cur?.properties ?? {}) ? cur.properties[k] : def.value };
+  }
+  post(frame, { type: "props", data: props });
+}
+
+// What webshim.js says a page wants: the audio levels, or what's playing.
+addEventListener("message", (e) => {
+  if (el?.tagName !== "IFRAME" || e.source !== el.contentWindow) return;
+  const m = e.data?.backdropShim;
+  if (!m || typeof m !== "object") return;
+  if (m.wantsAudio) el.wantsAudio = true;
+  if (m.wantsMedia) el.wantsMedia = true;
+  if (m.ready && cur) show(cur);
+});
 
 // Scenes with parallax or cursor effects need the mouse, which never reaches a window behind the
 // desktop icons, so they ask where it is.
@@ -262,14 +293,29 @@ setInterval(async () => {
 // Scenes that react to music get what's playing on the computer. Asking is what keeps capture
 // running, so it stops by itself when no such scene is on screen.
 setInterval(async () => {
-  const scene = el?.scene;
+  const node = el;
+  if (node?.tagName === "IFRAME" && node.wantsAudio && !cur?.paused) {
+    const levels = await invoke("audio_spectrum").catch(() => null);
+    if (levels && node === el) post(node, { type: "audio", data: levels });
+    return;
+  }
+  const scene = node?.scene;
   if (!scene?.running || scene.paused || !scene.wantsAudio) return;
   const levels = await invoke("audio_spectrum").catch(() => null);
   if (levels) scene.setSpectrum(levels);
 }, 33);
 
 setInterval(async () => {
-  const scene = el?.scene;
+  const node = el;
+  if (node?.tagName === "IFRAME" && node.wantsMedia && !cur?.paused) {
+    // A page has no cover cache of its own to speak of, so it gets the cover with every change.
+    const now = await invoke("now_playing", { have: node.coverTrack ?? null }).catch(() => null);
+    if (node !== el) return;
+    if (now?.cover) { node.cover = now.cover; node.coverTrack = now.track; }
+    post(node, { type: "media", data: now && { ...now, cover: now.cover ?? (now.track === node.coverTrack ? node.cover : null) } });
+    return;
+  }
+  const scene = node?.scene;
   if (!scene?.running || scene.paused || !scene.wantsMedia) return;
   scene.setMedia(await invoke("now_playing", { have: scene.coverTrack ?? null }).catch(() => null));
 }, 2000);

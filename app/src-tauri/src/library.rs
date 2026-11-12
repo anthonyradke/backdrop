@@ -180,6 +180,7 @@ fn import_inner(root: &Path, src: &Path, existing: &HashMap<String, Item>, link:
                 tags: vec![],
                 workshop: None,
                 preview: None,
+                ..Default::default()
             };
             write_meta(&dir, &item)?;
             Ok(item)

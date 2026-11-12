@@ -29,6 +29,8 @@ Wallpapers
 - Still images (JPG, PNG, WebP and others) set through the native wallpaper API.
 - Import by drag and drop. An HTML wallpaper can be a folder with an `index.html`, a `.zip` of one, or a single
   `.html` file.
+- The settings a scene or HTML wallpaper declares (colours, sliders, switches, lists) can be changed in the
+  library. HTML wallpapers get Wallpaper Engine's web API: properties, audio levels and what's playing.
 
 Displays and playback
 - A separate wallpaper per display, the same one on every display, or one spanned across all of them.

@@ -153,6 +153,7 @@ pub fn import(root: &Path, src: &Path, existing: &HashMap<String, Item>) -> io::
             tags: vec![],
             workshop: None,
             preview,
+            ..Default::default()
         };
         crate::library::write_meta(&dir, &item)?;
         Ok(item)

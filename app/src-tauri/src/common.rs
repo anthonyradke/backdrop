@@ -2,12 +2,14 @@
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
+    #[default]
     Video,
     Image,
     /// A zip with an `index.html` (HTML/canvas/WebGL wallpaper).
@@ -16,7 +18,7 @@ pub enum Kind {
     Scene,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Item {
     /// First 16 hex chars of the file's SHA-256, so importing the same file twice gives the same id.
     pub id: String,
@@ -45,6 +47,10 @@ pub struct Item {
     /// Picture to make the thumbnail from when the wallpaper itself can't be decoded for one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preview: Option<String>,
+    /// Values the user picked for the wallpaper's own properties (its project.json's
+    /// `general.properties`), by property name. Unset ones keep the wallpaper's defaults.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub properties: BTreeMap<String, serde_json::Value>,
 }
 
 pub const VIDEO_EXTS: &[&str] = &["mp4", "m4v", "mov", "webm", "mkv"];

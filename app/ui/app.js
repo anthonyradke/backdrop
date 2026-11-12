@@ -21,6 +21,7 @@ const S = {
   upd: null, // update::Status from Rust
   thumbVer: {}, // id -> cache buster after a new thumbnail
   videoViaLoopback: false,
+  props: {}, // item id -> its properties from project.json (item_properties), or "none"
   // Workshop tab. view: discover | steam (what Steam already downloaded)
   ws: { view: "discover", sort: "week", genre: "", kind: "all", search: "", page: 1, items: null, more: false, loading: false, error: null, sel: null, open: false, seq: 0 },
 };
@@ -338,6 +339,13 @@ const actions = {
     if (ids.includes(S.sel)) S.sel = null;
     render();
   },
+  propBool: (el) => {
+    const it = S.state.items.find((i) => i.id === el.dataset.id);
+    const d = S.props[el.dataset.id];
+    const v = it?.properties?.[el.dataset.k] ?? d?.properties?.[el.dataset.k]?.value;
+    return setProp(el.dataset.id, el.dataset.k, !(v === true || v === "true" || v === 1));
+  },
+  propReset: (el) => call("set_item_properties", { id: el.dataset.id, values: {}, reset: true }),
   preview: (el) => { S.preview = S.preview === el.dataset.id ? null : el.dataset.id; render(); },
   setAll: async (el) => {
     await call("set_wallpaper", { id: el.dataset.id, display: null });
@@ -397,11 +405,27 @@ document.addEventListener("click", (ev) => {
 });
 
 document.addEventListener("change", (ev) => {
+  const p = ev.target.closest?.(".prop-in");
+  if (p) {
+    const def = S.props[p.dataset.id]?.properties?.[p.dataset.k];
+    let v = p.value;
+    if (p.dataset.type === "color") v = propRgb(v);
+    else if (p.type === "range") v = Number(v);
+    // A list keeps the type its options have (numbers stay numbers).
+    else if (p.tagName === "SELECT") v = (def?.options ?? []).find((o) => String(o.value) === v)?.value ?? v;
+    setProp(p.dataset.id, p.dataset.k, v).catch(() => {});
+    return;
+  }
   if (ev.target.id === "ws-genre") { S.ws.genre = ev.target.value; wsLoad(); }
   if (ev.target.id === "ws-sort") { S.ws.sort = ev.target.value; wsLoad(); }
 });
 
 document.addEventListener("input", (ev) => {
+  // A slider's number follows it while it's dragged; the value is saved when it's let go.
+  if (ev.target.classList?.contains("prop-in") && ev.target.type === "range") {
+    const out = ev.target.nextElementSibling;
+    if (out) out.textContent = Number(ev.target.value).toFixed((ev.target.step.split(".")[1] || "").length);
+  }
   if (ev.target.id === "search") { S.query = ev.target.value; prunePicks(); render(); }
   // Kept as typed until Enter, so a re-render (a download's progress, say) doesn't wipe it.
   if (ev.target.id === "ws-search") S.ws.draft = ev.target.value;
@@ -654,6 +678,7 @@ function sideHtml(e) {
         <div class="card"><div class="row"><div class="what">${tr("In rotation")}<div class="hint">${tr("Rotation picks from these. Set the timer in Settings.")}</div></div>
           <button class="sw press ${rot ? "on" : ""}" data-act="rotation" data-id="${e.id}" role="switch" aria-checked="${rot}" aria-label="${esc(tr("In rotation"))}"></button></div></div>
       </div>
+      ${propsHtml(e)}
       <div class="group">
         <div class="group-label">${tr("Details")}</div>
         <div class="card"><dl class="facts">${facts.map(([k, v]) => `<dt>${esc(k)}</dt><dd title="${esc(v)}">${esc(v)}</dd>`).join("")}</dl></div>
@@ -663,6 +688,125 @@ function sideHtml(e) {
       </div>
     </div>
   </aside>`;
+}
+
+// ---------- wallpaper properties ----------
+// Scenes and HTML wallpapers from Wallpaper Engine carry their own settings (general.properties in
+// project.json): colours, sliders, switches, lists. Their labels and conditions come from the
+// download, so labels are shown as plain text and conditions go through a small evaluator.
+
+const PROP_LANG = { en: "en-us", es: "es-es", de: "de-de", "zh-Hans": "zh-chs" };
+// Labels Wallpaper Engine itself translates, for wallpapers that use them without a localization.
+const PROP_LABELS = { ui_browse_properties_scheme_color: "Scheme color" };
+
+function loadProps(id) {
+  if (S.props[id]) return;
+  S.props[id] = "loading";
+  invoke("item_properties", { id }).then((d) => { S.props[id] = d || "none"; render(); }, () => { S.props[id] = "none"; });
+}
+
+function propLabel(text, loc) {
+  const raw = String(text ?? "");
+  const local = loc?.[PROP_LANG[LANG] ?? "en-us"]?.[raw] ?? loc?.["en-us"]?.[raw] ?? PROP_LABELS[raw];
+  const plain = String(local ?? raw).replace(/<br\s*\/?>/gi, " ").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+  if (local == null && /^ui_[a-z0-9_]+$/i.test(plain)) {
+    const words = plain.replace(/^ui_(browse_properties_|editor_properties_)?/i, "").replace(/_/g, " ");
+    return words.charAt(0).toUpperCase() + words.slice(1);
+  }
+  return plain;
+}
+
+// "r g b" with 0-1 channels (or 0-255 in some older wallpapers) to #rrggbb and back.
+function propHex(v) {
+  const c = String(v ?? "").trim().split(/[\s,]+/).map(Number);
+  if (c.length < 3 || c.some((x) => !Number.isFinite(x))) return "#ffffff";
+  const k = c.slice(0, 3).some((x) => x > 1) ? 1 : 255;
+  return "#" + c.slice(0, 3).map((x) => Math.round(Math.min(255, Math.max(0, x * k))).toString(16).padStart(2, "0")).join("");
+}
+const propRgb = (hex) => [1, 3, 5].map((i) => (parseInt(hex.slice(i, i + 2), 16) / 255).toFixed(5).replace(/0+$/, "").replace(/\.$/, "")).join(" ");
+
+// Wallpaper Engine conditions, e.g. `showclock.value == true && style.value != 2`: names, `.value`,
+// literals, comparisons, ! && ||, parentheses. Anything else shows the property.
+function propCondition(cond, valueOf) {
+  if (typeof cond !== "string" || !cond.trim()) return true;
+  const toks = cond.match(/"[^"]*"|'[^']*'|[A-Za-z_][\w]*(?:\.value)?|\d+(?:\.\d+)?|===|!==|==|!=|>=|<=|&&|\|\||[!<>()]|\S/g) || [];
+  let i = 0;
+  const lit = (t) => {
+    if (t === "true") return true;
+    if (t === "false") return false;
+    if (/^["']/.test(t)) return t.slice(1, -1);
+    if (/^\d/.test(t)) return Number(t);
+    if (/^[A-Za-z_]/.test(t)) return valueOf(t.replace(/\.value$/, ""));
+    throw new Error(t);
+  };
+  const unary = () => {
+    const t = toks[i++];
+    if (t === "!") return !unary();
+    if (t === "(") { const v = or(); if (toks[i++] !== ")") throw new Error(")"); return v; }
+    if (t === undefined) throw new Error("end");
+    return lit(t);
+  };
+  const cmp = () => {
+    let a = unary();
+    while (["==", "!=", "===", "!==", ">", "<", ">=", "<="].includes(toks[i])) {
+      const op = toks[i++], b = unary();
+      // Wallpaper Engine compares loosely: "1" == 1, true == "true".
+      const [x, y] = [String(a), String(b)];
+      a = op === "==" || op === "===" ? x === y : op === "!=" || op === "!==" ? x !== y : op === ">" ? +a > +b : op === "<" ? +a < +b : op === ">=" ? +a >= +b : +a <= +b;
+    }
+    return a;
+  };
+  const and = () => { let a = cmp(); while (toks[i] === "&&") { i++; const b = cmp(); a = a && b; } return a; };
+  const or = () => { let a = and(); while (toks[i] === "||") { i++; const b = and(); a = a || b; } return a; };
+  try { const v = or(); return i === toks.length ? !!v : true; } catch { return true; }
+}
+
+function propsHtml(e) {
+  if (e.kind !== "scene" && e.kind !== "web") return "";
+  loadProps(e.id);
+  const d = S.props[e.id];
+  if (!d || typeof d !== "object") return "";
+  const values = e.properties ?? {};
+  const valueOf = (k) => (k in values ? values[k] : d.properties[k]?.value);
+  const list = Object.entries(d.properties)
+    .filter(([, p]) => p && typeof p === "object" && ["bool", "slider", "color", "combo", "textinput", "text"].includes(p.type))
+    .sort((a, b) => (+a[1].order || 0) - (+b[1].order || 0))
+    .filter(([, p]) => propCondition(p.condition, valueOf));
+  if (!list.length) return "";
+  const attrs = (k) => `class="prop-in" data-id="${e.id}" data-k="${esc(k)}"`;
+  const rows = list.map(([k, p]) => {
+    const label = esc(propLabel(p.text || k, d.localization));
+    const v = valueOf(k);
+    if (p.type === "text") return label ? `<div class="prop-note">${label}</div>` : "";
+    let control;
+    if (p.type === "bool") {
+      const on = v === true || v === "true" || v === 1;
+      control = `<button class="sw press ${on ? "on" : ""}" data-act="propBool" data-id="${e.id}" data-k="${esc(k)}" role="switch" aria-checked="${on}" aria-label="${label}"></button>`;
+    } else if (p.type === "slider") {
+      const min = +p.min || 0, max = Number.isFinite(+p.max) && p.max !== undefined ? +p.max : 100;
+      const step = +p.step || (p.fraction === false ? 1 : Math.max((max - min) / 100, 0.001));
+      const shown = Number.isFinite(+v) ? +v : min;
+      const digits = Number.isInteger(step) ? 0 : Math.min(3, Math.max(1, +p.precision || 2));
+      control = `<span class="prop-slide"><input type="range" ${attrs(k)} min="${min}" max="${max}" step="${step}" value="${shown}" aria-label="${label}"><output class="tnum">${shown.toFixed(digits)}</output></span>`;
+    } else if (p.type === "color") {
+      control = `<input type="color" ${attrs(k)} data-type="color" value="${propHex(v)}" aria-label="${label}">`;
+    } else if (p.type === "combo") {
+      const opts = Array.isArray(p.options) ? p.options : [];
+      control = `<select class="select prop-in" data-id="${e.id}" data-k="${esc(k)}" aria-label="${label}">${opts.map((o) => `<option value="${esc(o.value)}" ${String(o.value) === String(v) ? "selected" : ""}>${esc(propLabel(o.label ?? o.value, d.localization))}</option>`).join("")}</select>`;
+    } else {
+      control = `<input type="text" ${attrs(k)} value="${esc(v ?? "")}" spellcheck="false" aria-label="${label}">`;
+    }
+    return `<div class="row prop-row" data-key="pr-${esc(k)}"><div class="what">${label}</div>${control}</div>`;
+  }).join("");
+  const changed = Object.keys(values).length > 0;
+  return `<div class="group">
+        <div class="group-label">${tr("Properties")}${changed ? `<button class="link press" data-act="propReset" data-id="${e.id}">${tr("Reset")}</button>` : ""}</div>
+        <div class="card props">${rows}</div>
+      </div>`;
+}
+
+function setProp(id, key, value) {
+  return call("set_item_properties", { id, values: { [key]: value } });
 }
 
 // The inspector in select mode: what's ticked, and what can be done to all of it at once.
