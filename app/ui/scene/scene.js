@@ -239,6 +239,12 @@ function uploadableMips(mips) {
   return n;
 }
 
+// Half floats as a Uint16Array. Uncompressed mip data sits at an odd offset inside the .tex file,
+// which a Uint16Array view can't start at, so it's copied then.
+function halfFloats(d) {
+  return d.byteOffset & 1 ? new Uint16Array(d.slice().buffer, 0, d.length >> 1) : new Uint16Array(d.buffer, d.byteOffset, d.length >> 1);
+}
+
 function uploadLevel(scene, format, level, m) {
   const gl = scene.gl, F = WE.TEX_FORMAT, w = m.width, h = m.height, d = m.data;
   const s3 = scene.ext.s3tc, bptc = scene.ext.bptc;
@@ -249,18 +255,19 @@ function uploadLevel(scene, format, level, m) {
     } else {
       gl.texImage2D(gl.TEXTURE_2D, level, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, WE.decodeDXT(d, w, h, format));
     }
-  } else if (format === F.BC7 && bptc) {
+  } else if (format === F.BC7) {
+    if (!bptc) throw new Error("BC7 textures need EXT_texture_compression_bptc, which this GPU doesn't offer");
     gl.compressedTexImage2D(gl.TEXTURE_2D, level, bptc.COMPRESSED_RGBA_BPTC_UNORM_EXT, w, h, 0, d);
   } else if (format === F.RG8) {
     gl.texImage2D(gl.TEXTURE_2D, level, gl.RG8, w, h, 0, gl.RG, gl.UNSIGNED_BYTE, d);
   } else if (format === F.R8) {
     gl.texImage2D(gl.TEXTURE_2D, level, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, d);
   } else if (format === F.R16F) {
-    gl.texImage2D(gl.TEXTURE_2D, level, gl.R16F, w, h, 0, gl.RED, gl.HALF_FLOAT, new Uint16Array(d.buffer, d.byteOffset, d.length >> 1));
+    gl.texImage2D(gl.TEXTURE_2D, level, gl.R16F, w, h, 0, gl.RED, gl.HALF_FLOAT, halfFloats(d));
   } else if (format === F.RG16F) {
-    gl.texImage2D(gl.TEXTURE_2D, level, gl.RG16F, w, h, 0, gl.RG, gl.HALF_FLOAT, new Uint16Array(d.buffer, d.byteOffset, d.length >> 1));
+    gl.texImage2D(gl.TEXTURE_2D, level, gl.RG16F, w, h, 0, gl.RG, gl.HALF_FLOAT, halfFloats(d));
   } else if (format === F.RGBA16F) {
-    gl.texImage2D(gl.TEXTURE_2D, level, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, new Uint16Array(d.buffer, d.byteOffset, d.length >> 1));
+    gl.texImage2D(gl.TEXTURE_2D, level, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, halfFloats(d));
   } else {
     gl.texImage2D(gl.TEXTURE_2D, level, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, d);
   }

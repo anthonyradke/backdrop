@@ -22,3 +22,4 @@ this list into the release notes and empties it for the next batch.
 - Workshop items and zip files can no longer point Backdrop at files outside their own folder
 - A scene whose script never finishes, or whose particles nest or burst without limit, no longer
   freezes the wallpaper or pins a CPU core
+- Scenes with uncompressed high-precision textures show them instead of white

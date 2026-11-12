@@ -5,6 +5,8 @@ var WE = window.WE || (window.WE = {});
 
 WE.TEX_FORMAT = { RGBA8: 0, RGB8: 1, RGB565: 2, DXT5: 4, DXT3: 6, DXT1: 7, RG8: 8, R8: 9, RG16F: 10, R16F: 11, BC7: 12, RGBA1010102: 13, RGBA16F: 14, RGB16F: 15 };
 WE.TEX_FLAGS = { NO_INTERPOLATION: 1, CLAMP: 2, GIF: 4 };
+// Largest decompressed mipmap accepted (a 8192 x 8192 RGBA image is 256 MB).
+const MAX_TEX_BYTES = 256 << 20;
 
 // LZ4 block format, the only compression .tex uses.
 WE.lz4 = function (src, size) {
@@ -70,6 +72,9 @@ WE.parseTex = function (bytes) {
       let lz4 = false, size = 0;
       if (version >= 2) { lz4 = r.u32() === 1; size = r.i32(); }
       const raw = r.bytes(r.i32());
+      // LZ4 can't expand data more than about 255 times; a bigger size is a broken file asking
+      // for a huge allocation.
+      if (lz4 && (size < 0 || size > Math.min(raw.length * 255 + 64, MAX_TEX_BYTES))) throw new Error(`tex: bad mipmap size ${size}`);
       mips.push({ width: w, height: h, data: lz4 ? WE.lz4(raw, size) : raw });
     }
     tex.images.push(mips);
