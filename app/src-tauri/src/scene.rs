@@ -7,7 +7,8 @@ use crate::common::{self, Item, Kind};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::io;
-use std::path::{Component, Path, PathBuf};
+use crate::common::safe_path;
+use std::path::{Path, PathBuf};
 
 /// Where the unpacked wallpaper lives inside its library folder.
 pub const DIR: &str = "scene";
@@ -37,22 +38,6 @@ impl Reader<'_> {
         self.at += n;
         Ok(String::from_utf8_lossy(b).into_owned())
     }
-}
-
-/// A file name from an archive, as a path that stays inside the folder it's unpacked to.
-fn safe_path(name: &str) -> Option<PathBuf> {
-    if name.is_empty() || name.contains(':') || name.contains('\0') {
-        return None;
-    }
-    let mut out = PathBuf::new();
-    for part in name.split(['/', '\\']) {
-        let mut c = Path::new(part).components();
-        match (c.next(), c.next()) {
-            (Some(Component::Normal(p)), None) => out.push(p),
-            _ => return None,
-        }
-    }
-    Some(out)
 }
 
 /// Unpacks a `scene.pkg`: a `PKGV....` version string, a file table, then the files.

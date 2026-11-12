@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::Read;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -75,6 +75,27 @@ pub fn stored_name(kind: Kind, ext: &str) -> String {
 /// Item ids are lowercase hex; anything else is rejected before it touches the filesystem.
 pub fn valid_id(id: &str) -> bool {
     id.len() == 16 && id.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+}
+
+/// A relative file name from a downloaded wallpaper or archive (`/` or `\\` separated), as a path
+/// that stays inside the folder it belongs to. Absolute paths, drive letters, UNC shares (which
+/// Windows would connect to) and `..` are refused; empty and `.` parts are skipped.
+pub fn safe_path(name: &str) -> Option<PathBuf> {
+    if name.is_empty() || name.contains(':') || name.contains('\0') || name.starts_with(['/', '\\']) {
+        return None;
+    }
+    let mut out = PathBuf::new();
+    for part in name.split(['/', '\\']) {
+        if part.is_empty() || part == "." {
+            continue;
+        }
+        let mut c = Path::new(part).components();
+        match (c.next(), c.next()) {
+            (Some(Component::Normal(p)), None) => out.push(p),
+            _ => return None,
+        }
+    }
+    (!out.as_os_str().is_empty()).then_some(out)
 }
 
 pub fn id_from_digest(digest: &[u8]) -> String {
@@ -252,6 +273,16 @@ mod tests {
     }
 
     #[test]
+    fn safe_paths() {
+        assert_eq!(safe_path("a/b.mp4"), Some(PathBuf::from("a").join("b.mp4")));
+        assert_eq!(safe_path("a\\b.mp4"), Some(PathBuf::from("a").join("b.mp4")));
+        assert_eq!(safe_path("./a..b.mp4"), Some(PathBuf::from("a..b.mp4")));
+        for bad in ["", "/etc/hostname", "\\\\host\\share\\a.mp4", "\\x.mp4", "C:\\x.mp4", "c:x", "a/../../b", "..", "a\0b", "./"] {
+            assert_eq!(safe_path(bad), None, "{bad:?}");
+        }
+    }
+
+    #[test]
     fn names() {
         assert_eq!(name_from_file("my_cool-loop.mp4"), "my cool loop");
         assert_eq!(name_from_file(".mp4"), ".mp4");
@@ -329,12 +360,12 @@ pub mod pack {
         std::fs::create_dir_all(dest)?;
         for i in 0..z.len() {
             let mut f = z.by_index(i).map_err(io_err)?;
-            let Some(rel) = f.enclosed_name() else { continue };
-            let rel = rel.to_string_lossy().replace('\\', "/");
-            let Some(rel) = rel.strip_prefix(&prefix) else { continue };
-            if rel.is_empty() || f.is_dir() {
+            if f.is_dir() || f.enclosed_name().is_none() {
                 continue;
             }
+            // Checked after the top folder is stripped: `top/../x` stays inside the archive but
+            // would land outside `dest`.
+            let Some(rel) = f.name().strip_prefix(prefix.as_str()).and_then(super::safe_path) else { continue };
             let out = dest.join(rel);
             if let Some(parent) = out.parent() {
                 std::fs::create_dir_all(parent)?;
@@ -342,5 +373,32 @@ pub mod pack {
             io::copy(&mut f, &mut File::create(&out)?)?;
         }
         Ok(())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use zip::write::SimpleFileOptions;
+
+        #[test]
+        fn extract_keeps_entries_inside_dest() {
+            let tmp = std::env::temp_dir().join(format!("backdrop-zip-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&tmp);
+            std::fs::create_dir_all(&tmp).unwrap();
+            let zip = tmp.join("w.zip");
+            let mut z = zip::ZipWriter::new(File::create(&zip).unwrap());
+            for name in ["top/index.html", "top/js/a.js", "top/../planted.txt", "top/a\\..\\..\\evil.txt", "other/x.txt"] {
+                z.start_file(name, SimpleFileOptions::default()).unwrap();
+                z.write_all(b"x").unwrap();
+            }
+            z.finish().unwrap();
+            let dest = tmp.join("item").join("web");
+            extract(&zip, &dest).unwrap();
+            assert!(dest.join("index.html").is_file() && dest.join("js").join("a.js").is_file());
+            assert!(!tmp.join("item").join("planted.txt").exists());
+            assert!(!tmp.join("item").join("evil.txt").exists() && !tmp.join("evil.txt").exists());
+            assert!(!dest.join("x.txt").exists());
+            let _ = std::fs::remove_dir_all(&tmp);
+        }
     }
 }

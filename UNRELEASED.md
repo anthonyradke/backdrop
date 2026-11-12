@@ -19,3 +19,4 @@ this list into the release notes and empties it for the next batch.
 - Changing wallpapers no longer leaves the previous one playing (with sound) behind the new one when
   the new one fails to load or the change is quick
 - A scene's still frame is always taken from that scene, and a video paused while loading stays paused
+- Workshop items and zip files can no longer point Backdrop at files outside their own folder

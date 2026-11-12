@@ -17,7 +17,7 @@
 //! without one of the remaining `GENRES` or with an anime word in the title or description; and the
 //! user can hide single items or everything by a creator (`Store`).
 
-use crate::common::{Item, Kind};
+use crate::common::{self, Item, Kind};
 use crate::{library, log, Core};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap};
@@ -416,13 +416,16 @@ fn read_local(dir: &Path, id: &str) -> Option<Local> {
     if kind == "scene" {
         return Some(Local { id: id.into(), src: dir.to_path_buf(), title: p.title, kind: WsKind::Scene });
     }
-    let file = dir.join(&p.file);
-    if p.file.is_empty() || p.file.contains("..") || !file.is_file() {
+    // Anyone can upload one, so `file` is checked before it's touched: an absolute path would read
+    // outside the item, and on Windows a UNC path would connect to that host.
+    let file = dir.join(common::safe_path(&p.file)?);
+    if !file.is_file() {
         return None;
     }
     let (src, kind) = match kind.as_str() {
         "video" => (file, WsKind::Video),
-        "web" if file.file_name()? == "index.html" => (dir.to_path_buf(), WsKind::Web),
+        // The page's own folder, which may be a subfolder of the item.
+        "web" if file.file_name()? == "index.html" => (file.parent()?.to_path_buf(), WsKind::Web),
         _ => return None,
     };
     Some(Local { id: id.into(), src, title: p.title, kind })
@@ -619,6 +622,29 @@ pub fn valid_ws_id(id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_files_stay_in_the_item() {
+        let dir = std::env::temp_dir().join(format!("backdrop-ws-local-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("site")).unwrap();
+        std::fs::write(dir.join("a..b.mp4"), b"v").unwrap();
+        std::fs::write(dir.join("site").join("index.html"), b"<p>").unwrap();
+        let read = |kind: &str, file: &str| {
+            let json = serde_json::json!({ "title": "t", "type": kind, "file": file });
+            std::fs::write(dir.join("project.json"), json.to_string()).unwrap();
+            read_local(&dir, "1").map(|l| l.src)
+        };
+        assert_eq!(read("video", "a..b.mp4"), Some(dir.join("a..b.mp4")));
+        assert_eq!(read("web", "site/index.html"), Some(dir.join("site")));
+        let outside = std::env::temp_dir().join(format!("backdrop-ws-outside-{}.mp4", std::process::id()));
+        std::fs::write(&outside, b"v").unwrap();
+        for bad in [outside.to_string_lossy().to_string(), r"\\host\share\a.mp4".into(), "../a..b.mp4".into(), "".into()] {
+            assert_eq!(read("video", &bad), None, "{bad}");
+        }
+        let _ = std::fs::remove_file(&outside);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn url_excludes_anime_and_asks_for_everyone() {
