@@ -1,14 +1,23 @@
 // SceneScript: the JavaScript wallpapers attach to properties. It's third-party code, so it never
-// runs in the player page, which can reach the app's commands. Every script lives in a Worker
-// without network access and trades values with the renderer by message, one frame behind. A
-// script that hangs or throws costs the wallpaper that behaviour and nothing else.
+// runs in the player page, which can reach the app's commands. Every script lives in a Worker and
+// trades values with the renderer by message, one frame behind. The player page's CSP (in
+// tauri.conf.json), which the Worker inherits, is what keeps it off the network; the runtime also
+// removes the network APIs it can find. A script that hangs or throws costs the wallpaper that
+// behaviour and nothing else.
 "use strict";
 var WE = window.WE || (window.WE = {});
 
 // Runs inside the Worker, so it can't use anything from this file.
 function scriptRuntime() {
-  for (const k of ["fetch", "XMLHttpRequest", "WebSocket", "EventSource", "Worker", "SharedWorker", "importScripts", "indexedDB", "caches", "BroadcastChannel", "WebTransport"]) {
-    try { self[k] = undefined; } catch {}
+  // Assigning undefined on self leaves the real one on a prototype, and getter-only properties
+  // ignore assignment, so each is redefined wherever it lives along the chain.
+  const blocked = ["fetch", "XMLHttpRequest", "WebSocket", "WebSocketStream", "EventSource", "Worker", "SharedWorker",
+    "importScripts", "indexedDB", "caches", "BroadcastChannel", "WebTransport", "FontFace", "fonts"];
+  for (let o = self; o; o = Object.getPrototypeOf(o)) {
+    for (const k of blocked) {
+      if (!Object.prototype.hasOwnProperty.call(o, k)) continue;
+      try { Object.defineProperty(o, k, { value: undefined, writable: false, configurable: false }); } catch {}
+    }
   }
   const scripts = [];
   const layers = new Map(); // id -> values
