@@ -168,6 +168,53 @@ pub fn name_from_file(file_name: &str) -> String {
     }
 }
 
+/// Writes a file so a crash or power cut leaves either the old contents or the new, never a mix:
+/// a temporary file next to it is flushed to disk, then renamed over it.
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+    let mut f = std::fs::File::create(&tmp)?;
+    f.write_all(bytes)?;
+    f.sync_all()?;
+    drop(f);
+    std::fs::rename(&tmp, path)
+}
+
+/// Reads a JSON settings file, keeping every field it can. A field that doesn't parse (say, a value
+/// a newer version wrote) falls back to its default instead of taking the whole file with it, and
+/// the file is copied to `<name>.bad` so nothing is lost for good.
+pub fn load_json<T: Default + serde::Serialize + serde::de::DeserializeOwned>(path: &Path) -> T {
+    let Ok(bytes) = std::fs::read(path) else { return T::default() };
+    if let Ok(v) = serde_json::from_slice::<T>(&bytes) {
+        return v;
+    }
+    let keep_bad = || {
+        let mut bad = path.as_os_str().to_owned();
+        bad.push(".bad");
+        let _ = std::fs::copy(path, PathBuf::from(bad));
+    };
+    let Ok(serde_json::Value::Object(saved)) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        crate::log(format!("{} isn't valid JSON; starting from defaults (the old file is kept as .bad)", path.display()));
+        keep_bad();
+        return T::default();
+    };
+    let mut merged = serde_json::to_value(T::default()).unwrap_or_default();
+    let mut dropped = vec![];
+    for (k, v) in saved {
+        let before = merged.clone();
+        merged[&k] = v;
+        if serde_json::from_value::<T>(merged.clone()).is_err() {
+            merged = before;
+            dropped.push(k);
+        }
+    }
+    crate::log(format!("{}: couldn't read {dropped:?}, using defaults for those (the old file is kept as .bad)", path.display()));
+    keep_bad();
+    serde_json::from_value(merged).unwrap_or_default()
+}
+
 pub fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -304,6 +351,36 @@ mod tests {
         assert!(!valid_id("0123456789ABCDEF"));
         assert!(!valid_id("../../etc/passwd"));
         assert_eq!(id_from_digest(&[0xab; 32]), "abababababababab");
+    }
+
+    #[test]
+    fn settings_survive_a_bad_field() {
+        #[derive(Default, Serialize, Deserialize, PartialEq, Debug)]
+        #[serde(default)]
+        struct S {
+            a: u32,
+            b: Kind2,
+            c: String,
+        }
+        #[derive(Default, Serialize, Deserialize, PartialEq, Debug)]
+        #[serde(rename_all = "lowercase")]
+        enum Kind2 {
+            #[default]
+            One,
+            Two,
+        }
+        let dir = std::env::temp_dir().join(format!("backdrop-json-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("s.json");
+        write_atomic(&p, br#"{"a": 3, "b": "three", "c": "kept"}"#).unwrap();
+        assert_eq!(load_json::<S>(&p), S { a: 3, b: Kind2::One, c: "kept".into() });
+        assert!(dir.join("s.json.bad").is_file());
+        write_atomic(&p, br#"{"a": 4, "b": "two"}"#).unwrap();
+        assert_eq!(load_json::<S>(&p), S { a: 4, b: Kind2::Two, c: String::new() });
+        write_atomic(&p, b"{not json").unwrap();
+        assert_eq!(load_json::<S>(&p), S::default());
+        assert_eq!(load_json::<S>(&dir.join("missing.json")), S::default());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

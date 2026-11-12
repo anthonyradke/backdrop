@@ -552,12 +552,14 @@ pub struct Store {
 
 impl Store {
     pub fn load(path: PathBuf) -> Self {
-        let saved = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        let saved = common::load_json(&path);
         Self { path, saved }
     }
 
     fn save(&self) {
-        let _ = std::fs::write(&self.path, serde_json::to_vec_pretty(&self.saved).expect("store serializes"));
+        if let Err(e) = common::write_atomic(&self.path, &serde_json::to_vec_pretty(&self.saved).expect("store serializes")) {
+            log(format!("could not save {}: {e}", self.path.display()));
+        }
     }
 
     pub fn pending(&self) -> &[String] {

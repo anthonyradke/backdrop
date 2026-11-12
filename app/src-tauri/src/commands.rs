@@ -340,8 +340,7 @@ pub fn save_frame(core: State<'_, Core>, id: String, data: String) -> Result<(),
     if !dir.is_dir() {
         return Err("not in the library".into());
     }
-    let tmp = dir.join("frame.jpg.tmp");
-    std::fs::write(&tmp, jpeg).and_then(|_| std::fs::rename(&tmp, dir.join(crate::engine::FRAME))).map_err(|e| e.to_string())?;
+    common::write_atomic(&dir.join(crate::engine::FRAME), &jpeg).map_err(|e| e.to_string())?;
     core.poke();
     Ok(())
 }

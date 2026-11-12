@@ -26,3 +26,5 @@ this list into the release notes and empties it for the next batch.
 - Adding the same wallpaper twice at once (a drop while the Workshop sync imports it) no longer
   breaks it, and a failed import leaves no half-copied folder behind
 - Music scenes on every display get the album cover, also when they start mid-song
+- A settings file Backdrop can't fully read (after going back to an older version, say) keeps every
+  setting it can instead of resetting all of them, and the original is saved as `config.json.bad`

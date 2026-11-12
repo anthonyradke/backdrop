@@ -100,17 +100,13 @@ impl Default for Config {
 }
 
 pub fn load(path: &Path) -> Config {
-    std::fs::read(path)
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_default()
+    crate::common::load_json(path)
 }
 
 pub fn save(path: &Path, cfg: &Config) {
-    let tmp = path.with_extension("json.tmp");
     let json = serde_json::to_vec_pretty(cfg).expect("config serializes");
-    if std::fs::write(&tmp, json).and_then(|_| std::fs::rename(&tmp, path)).is_err() {
-        crate::log(format!("could not save {}", path.display()));
+    if let Err(e) = crate::common::write_atomic(path, &json) {
+        crate::log(format!("could not save {}: {e}", path.display()));
     }
 }
 

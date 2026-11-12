@@ -90,9 +90,7 @@ impl Library {
 }
 
 pub fn write_meta(dir: &Path, item: &Item) -> io::Result<()> {
-    let tmp = dir.join("meta.json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec_pretty(item).expect("item serializes"))?;
-    std::fs::rename(&tmp, dir.join("meta.json"))
+    common::write_atomic(&dir.join("meta.json"), &serde_json::to_vec_pretty(item).expect("item serializes"))
 }
 
 fn other<E: std::fmt::Display>(e: E) -> io::Error {
