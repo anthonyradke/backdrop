@@ -33,3 +33,5 @@ this list into the release notes and empties it for the next batch.
   until Enter
 - Switches, sliders and search fields have accessible names, and the Workshop dialog and the tour keep
   keyboard focus inside them
+- Scene shaders with a `/*` inside a line comment, hex numbers or integer division in `#if` compile
+  as written

@@ -51,8 +51,12 @@ vec3 PerformLighting_V1(vec3 worldPos, vec3 albedo, vec3 normal, vec3 viewDir, v
 	return total;
 }`;
 
+// Both kinds of comment in one pass, in source order: a `/*` inside a line comment doesn't start a
+// block, and a `//` inside a block doesn't end it early. Line breaks are kept so line numbers match.
 function stripComments(src) {
-  return src.replace(/\r\n?/g, "\n").replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " ")).replace(/\\\n/g, " ");
+  return src.replace(/\r\n?/g, "\n")
+    .replace(/\/\*[\s\S]*?(?:\*\/|$)|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "))
+    .replace(/\\\n/g, " ");
 }
 
 // Pulls the JSON out of `// [COMBO] {...}` and `uniform T name; // {...}` lines.
@@ -100,7 +104,8 @@ async function expandIncludes(src, read, seen, out) {
   return res.join("\n");
 }
 
-// Evaluates a #if condition. Only numbers and operators reach Function(), which keeps it safe.
+// Evaluates a #if condition the way a C preprocessor does: macros expanded, unknown names as 0,
+// integer arithmetic. Anything it can't parse counts as false.
 function evalCond(expr, defs) {
   let e = expr.replace(/\bdefined\s*\(\s*(\w+)\s*\)|\bdefined\s+(\w+)/g, (_, a, b) => (defs.has(a || b) ? "1" : "0"));
   for (let i = 0; i < 16; i++) {
@@ -112,9 +117,73 @@ function evalCond(expr, defs) {
     });
     if (!changed) break;
   }
-  if (!/^[\s\d.()!<>=&|+\-*/%^~?:]*$/.test(e) || !e.trim()) return false;
-  try { return !!Function(`return (${e});`)(); } catch { return false; }
+  try { return calc(e) !== 0; } catch { return false; }
 }
+
+// A small parser for #if arithmetic. Numbers may be hex and carry u/l/f suffixes; a float literal
+// is truncated, as the preprocessor would refuse it anyway.
+function calc(src) {
+  const toks = src.match(/0[xX][0-9a-fA-F]+[uUlL]*|\d+(?:\.\d*)?(?:[eE][-+]?\d+)?[uUlLfF]*|\|\||&&|==|!=|<=|>=|<<|>>|[-+*/%<>!~&|^?:()]|\S/g) || [];
+  let i = 0;
+  const peek = () => toks[i];
+  const take = (t) => { if (toks[i] !== t) throw new Error(`expected ${t}`); i++; };
+  const BIN = [["||"], ["&&"], ["|"], ["^"], ["&"], ["==", "!="], ["<", ">", "<=", ">="], ["<<", ">>"], ["+", "-"], ["*", "/", "%"]];
+  const apply = (op, a, b) => {
+    switch (op) {
+      case "||": return a || b ? 1 : 0;
+      case "&&": return a && b ? 1 : 0;
+      case "|": return a | b;
+      case "^": return a ^ b;
+      case "&": return a & b;
+      case "==": return a === b ? 1 : 0;
+      case "!=": return a !== b ? 1 : 0;
+      case "<": return a < b ? 1 : 0;
+      case ">": return a > b ? 1 : 0;
+      case "<=": return a <= b ? 1 : 0;
+      case ">=": return a >= b ? 1 : 0;
+      case "<<": return a << b;
+      case ">>": return a >> b;
+      case "+": return a + b;
+      case "-": return a - b;
+      case "*": return Math.imul(a, b);
+      case "/": if (!b) throw new Error("division by zero"); return Math.trunc(a / b);
+      case "%": if (!b) throw new Error("division by zero"); return a % b;
+    }
+  };
+  const unary = () => {
+    const t = toks[i++];
+    if (t === undefined) throw new Error("unexpected end");
+    if (t === "(") { const v = ternary(); take(")"); return v; }
+    if (t === "!") return unary() ? 0 : 1;
+    if (t === "~") return ~unary();
+    if (t === "-") return -unary();
+    if (t === "+") return unary();
+    if (/^0[xX]/.test(t)) return parseInt(t, 16) | 0;
+    if (/^\d/.test(t)) return Math.trunc(parseFloat(t)) | 0;
+    throw new Error(`unexpected ${t}`);
+  };
+  const binary = (level) => {
+    if (level === BIN.length) return unary();
+    let v = binary(level + 1);
+    while (BIN[level].includes(peek())) v = apply(toks[i++], v, binary(level + 1));
+    return v;
+  };
+  const ternary = () => {
+    const c = binary(0);
+    if (peek() !== "?") return c;
+    i++;
+    const a = ternary();
+    take(":");
+    const b = ternary();
+    return c ? a : b;
+  };
+  if (!toks.length) throw new Error("empty");
+  const v = ternary();
+  if (i !== toks.length) throw new Error("trailing input");
+  return v;
+}
+
+WE.shaderInternals = { stripComments, evalCond, calc };
 
 // Keeps only active lines. #defines stay in the output for the real compiler to expand.
 function preprocess(src, defines) {
