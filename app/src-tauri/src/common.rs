@@ -459,7 +459,8 @@ pub mod pack {
     /// if there is no `index.html`.
     pub fn extract(zip_path: &Path, dest: &Path) -> io::Result<()> {
         let mut z = zip::ZipArchive::new(File::open(zip_path)?).map_err(io_err)?;
-        let names: Vec<String> = z.file_names().map(String::from).collect();
+        // Names that don't decode are left out, here and below.
+        let names: Vec<String> = z.file_names().filter_map(|n| n.ok().map(String::from)).collect();
         let prefix = if names.iter().any(|n| n == "index.html") {
             String::new()
         } else {
@@ -478,7 +479,8 @@ pub mod pack {
             }
             // Checked after the top folder is stripped: `top/../x` stays inside the archive but
             // would land outside `dest`.
-            let Some(rel) = f.name().strip_prefix(prefix.as_str()).and_then(super::safe_path) else { continue };
+            let Ok(name) = f.name() else { continue };
+            let Some(rel) = name.strip_prefix(prefix.as_str()).and_then(super::safe_path) else { continue };
             let out = dest.join(rel);
             if let Some(parent) = out.parent() {
                 std::fs::create_dir_all(parent)?;
