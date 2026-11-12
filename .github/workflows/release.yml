@@ -37,8 +37,16 @@ jobs:
           $version = (Get-Content app/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
           if ("v$version" -ne "${{ github.ref_name }}") { throw "tag ${{ github.ref_name }} doesn't match tauri.conf.json version $version" }
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Test
-        run: cargo test --workspace
+        shell: pwsh
+        run: |
+          cargo test --workspace
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          node --test (Get-ChildItem app/ui/tests/*.test.js).FullName
 
       - name: Build
         shell: pwsh

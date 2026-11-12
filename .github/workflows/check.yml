@@ -1,0 +1,32 @@
+# Tests every push to main on Windows, where the app runs: the Rust tests, the renderer's
+# JavaScript tests, and a check of the dependencies against the RustSec advisory database.
+name: check
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Rust tests
+        run: cargo test --workspace
+      - name: JavaScript tests
+        shell: pwsh
+        run: node --test (Get-ChildItem app/ui/tests/*.test.js).FullName
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: Dependency advisories
+        run: cargo audit

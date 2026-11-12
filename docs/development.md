@@ -35,4 +35,10 @@ On Linux the app runs in a plain window (`platform/other.rs`) for development on
 
 ```sh
 cargo test --workspace
+node --test app/ui/tests/*.test.js
 ```
+
+The JavaScript tests load the renderer's plain scripts into a Node context (`app/ui/tests/load.js`)
+and cover the parts that don't need a GPU: the texture and LZ4 readers, the shader preprocessor, the
+frame clock, and the limits on scripts and particles. `.github/workflows/check.yml` runs both suites
+on Windows for every push to `main`, along with `cargo audit`.

@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { unpack } from "./unpack.mjs";
 
 const arg = (name, fallback) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -27,7 +28,8 @@ const executablePath = arg("browser", null);
 const require = createRequire(path.resolve(arg("modules", here), "x.js"));
 const { chromium } = require("playwright-core");
 
-// Stock assets, and scenes as `name: [repo, folder inside it]`.
+// Stock assets, and scenes as `name: [repo, folder inside it]`. Each repository is checked out at a
+// fixed commit, so a change upstream can't change what runs here; move them on deliberately.
 const STOCK = ["laobamac/MirageWallpaper", "assets"];
 const SCENES = {
   ultrakill: ["SuppliedOrange/cyber-ultrakill-v2", "cyber_ultrakill_v2"],
@@ -36,26 +38,23 @@ const SCENES = {
   lonelycat: ["dearxiwei/dearxiwei.github.io", "repkg/3299228616"],
   arona: ["vanh1910/Arona", "scene"],
 };
+const COMMITS = {
+  "laobamac/MirageWallpaper": "e66f14b9cffa8129602b3582711f5881df91d159",
+  "SuppliedOrange/cyber-ultrakill-v2": "65069965a19626bc0c1d4fd8853fd09f404e7efd",
+  "Iemontine/Kobeni-Wallpaper": "30694ebe9bcbd3c50e858872cf77e90f50e07472",
+  "dearxiwei/dearxiwei.github.io": "53eba97270b623d3ed4569a71d448e318dccb62f",
+  "vanh1910/Arona": "b10d4371f6b2a5811f900c41c6642f4c0da8db93",
+};
 
 function clone(repo) {
   const dir = path.join(work, repo.replace("/", "_"));
-  if (!fs.existsSync(dir)) execFileSync("git", ["clone", "-q", "--depth", "1", `https://github.com/${repo}`, dir], { stdio: "inherit", env: { ...process.env, GIT_LFS_SKIP_SMUDGE: "1" } });
-  return dir;
-}
-
-function unpack(pkg, dest) {
-  const b = fs.readFileSync(pkg);
-  let o = 0;
-  const str = () => { const n = b.readUInt32LE(o); o += 4; const s = b.toString("utf8", o, o + n); o += n; return s; };
-  str();
-  const count = b.readUInt32LE(o); o += 4;
-  const files = [];
-  for (let i = 0; i < count; i++) { const name = str(); files.push([name, b.readUInt32LE(o), b.readUInt32LE(o + 4)]); o += 8; }
-  for (const [name, offset, len] of files) {
-    const to = path.join(dest, name);
-    fs.mkdirSync(path.dirname(to), { recursive: true });
-    fs.writeFileSync(to, b.subarray(o + offset, o + offset + len));
+  if (!fs.existsSync(dir)) {
+    const git = (...a) => execFileSync("git", a, { stdio: "inherit", env: { ...process.env, GIT_LFS_SKIP_SMUDGE: "1" } });
+    git("init", "-q", dir);
+    git("-C", dir, "fetch", "-q", "--depth", "1", `https://github.com/${repo}`, COMMITS[repo]);
+    git("-C", dir, "checkout", "-q", "FETCH_HEAD");
   }
+  return dir;
 }
 
 fs.mkdirSync(out, { recursive: true });
@@ -96,9 +95,11 @@ const server = http.createServer((q, r) => {
   const u = decodeURIComponent(q.url.split("?")[0]);
   let f = null;
   if (u === "/") { r.setHeader("Content-Type", "text/html"); return r.end(PAGE); }
-  if (u.startsWith("/ui/")) f = path.join(ui, u.slice(4));
-  else if (u.startsWith("/assets/")) f = path.join(stock, u.slice(8));
-  else if (u.startsWith("/scene/")) f = path.join(work, "scenes", u.slice(7));
+  // Only files under each root, whatever the path says.
+  const under = (root, rest) => { const p = path.resolve(root, rest); return p.startsWith(path.resolve(root) + path.sep) ? p : null; };
+  if (u.startsWith("/ui/")) f = under(ui, u.slice(4));
+  else if (u.startsWith("/assets/")) f = under(stock, u.slice(8));
+  else if (u.startsWith("/scene/")) f = under(path.join(work, "scenes"), u.slice(7));
   if (!f || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { r.statusCode = 404; return r.end(); }
   r.setHeader("Content-Type", TYPES[path.extname(f)] || "application/octet-stream");
   fs.createReadStream(f).pipe(r);
