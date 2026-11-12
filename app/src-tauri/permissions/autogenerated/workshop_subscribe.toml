@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-workshop-subscribe"
+description = "Enables the workshop_subscribe command without any pre-configured scope."
+commands.allow = ["workshop_subscribe"]
+
+[[permission]]
+identifier = "deny-workshop-subscribe"
+description = "Denies the workshop_subscribe command without any pre-configured scope."
+commands.deny = ["workshop_subscribe"]

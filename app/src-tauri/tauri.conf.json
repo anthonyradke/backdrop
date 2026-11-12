@@ -10,7 +10,20 @@
     "withGlobalTauri": true,
     "windows": [],
     "security": {
-      "csp": null
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self' blob: 'unsafe-eval'",
+        "worker-src": "blob:",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' data: blob: https: http://media.localhost media: http://127.0.0.1:*",
+        "media-src": "'self' data: blob: http://media.localhost media: http://127.0.0.1:*",
+        "font-src": "'self' data: blob: http://media.localhost media:",
+        "connect-src": "'self' ipc: http://ipc.localhost data: blob: http://media.localhost media:",
+        "frame-src": "http://127.0.0.1:* http://media.localhost media:",
+        "object-src": "'none'",
+        "base-uri": "'none'"
+      },
+      "dangerousDisableAssetCspModification": ["style-src"]
     }
   },
   "bundle": {

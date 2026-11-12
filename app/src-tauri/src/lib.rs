@@ -71,8 +71,8 @@ pub struct Core {
     pub displays: Mutex<Vec<DisplayView>>,
     /// Window label -> what that player should show.
     pub players: Mutex<HashMap<String, PlayerParams>>,
-    /// Base URL of the loopback server the player falls back to for video.
-    pub loopback: Option<String>,
+    /// The loopback server: the player's fallback for video, and where HTML wallpapers run.
+    pub loopback: Option<loopback::Loopback>,
     /// When the wallpaper last rotated (or the interval was changed).
     pub rotated_at: Mutex<Instant>,
     /// Workshop items subscribed from Backdrop that Steam hasn't finished downloading.
@@ -251,7 +251,7 @@ impl Core {
             library_dir,
             autostart: self.app.autolaunch().is_enabled().unwrap_or(false),
             version: env!("CARGO_PKG_VERSION"),
-            loopback: self.loopback.clone(),
+            loopback: self.loopback.as_ref().map(|l| l.base.clone()),
             workshop: WorkshopView {
                 steam: !workshop::content_dirs().is_empty(),
                 pending,
@@ -450,4 +450,31 @@ pub fn run() {
             }
             _ => {}
         });
+}
+
+#[cfg(test)]
+mod tests {
+    /// build.rs gives every command a permission; one missing there is refused at runtime.
+    #[test]
+    fn every_command_has_a_permission() {
+        let names = |src: &str, start: &str, end: &str, prefix: &str| -> Vec<String> {
+            let body = &src[src.find(start).unwrap()..];
+            let body = &body[..body.find(end).unwrap()];
+            let mut v: Vec<String> = body
+                .lines()
+                .filter_map(|l| l.trim().strip_prefix(prefix))
+                .map(|l| l.trim_end_matches([',', '"']).to_string())
+                .collect();
+            v.sort();
+            v
+        };
+        let handler = names(include_str!("lib.rs"), "generate_handler![", "])", "commands::");
+        let manifest = names(include_str!("../build.rs"), "COMMANDS: &[&str] = &[", "];", "\"");
+        assert!(!handler.is_empty());
+        assert_eq!(handler, manifest);
+        let caps = include_str!("../capabilities/main.json");
+        for c in &handler {
+            assert!(caps.contains(&format!("\"allow-{}\"", c.replace('_', "-"))), "main.json lacks {c}");
+        }
+    }
 }

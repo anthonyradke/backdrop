@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-clear-wallpaper"
+description = "Enables the clear_wallpaper command without any pre-configured scope."
+commands.allow = ["clear_wallpaper"]
+
+[[permission]]
+identifier = "deny-clear-wallpaper"
+description = "Denies the clear_wallpaper command without any pre-configured scope."
+commands.deny = ["clear_wallpaper"]

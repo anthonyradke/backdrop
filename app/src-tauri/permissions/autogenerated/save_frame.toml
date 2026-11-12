@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-frame"
+description = "Enables the save_frame command without any pre-configured scope."
+commands.allow = ["save_frame"]
+
+[[permission]]
+identifier = "deny-save-frame"
+description = "Denies the save_frame command without any pre-configured scope."
+commands.deny = ["save_frame"]

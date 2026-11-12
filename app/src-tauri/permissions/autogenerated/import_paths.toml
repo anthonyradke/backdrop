@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-import-paths"
+description = "Enables the import_paths command without any pre-configured scope."
+commands.allow = ["import_paths"]
+
+[[permission]]
+identifier = "deny-import-paths"
+description = "Denies the import_paths command without any pre-configured scope."
+commands.deny = ["import_paths"]

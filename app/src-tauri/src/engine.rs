@@ -65,6 +65,9 @@ pub struct PlayerParams {
     pub capture: Option<String>,
     /// Loopback server base URL, tried when a video fails over media://.
     pub fallback: Option<String>,
+    /// Where an HTML wallpaper's page is loaded from instead of media:// (see loopback.rs).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub web: Option<String>,
     /// The window's rectangle in physical pixels, for scenes that follow the cursor.
     pub rect: [i32; 4],
 }
@@ -379,7 +382,8 @@ impl Engine {
                             strips(d, std::slice::from_ref(d))
                         },
                         capture: (wants_frame && !frame.is_file()).then(|| item.id.clone()),
-                        fallback: core.loopback.clone(),
+                        fallback: core.loopback.as_ref().map(|l| l.base.clone()),
+                        web: (item.kind == Kind::Web).then(|| core.loopback.as_ref().map(|l| l.web_base(&item.id))).flatten(),
                         rect: [d.x, d.y, d.width as i32, d.height as i32],
                     };
                     if self.ensure_player(&core, d, params) {

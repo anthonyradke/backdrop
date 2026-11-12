@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-workshop-open-steam"
+description = "Enables the workshop_open_steam command without any pre-configured scope."
+commands.allow = ["workshop_open_steam"]
+
+[[permission]]
+identifier = "deny-workshop-open-steam"
+description = "Denies the workshop_open_steam command without any pre-configured scope."
+commands.deny = ["workshop_open_steam"]

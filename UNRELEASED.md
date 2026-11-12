@@ -11,3 +11,6 @@ this list into the release notes and empties it for the next batch.
   turn up without picking the Scene filter
 - New look modeled on T3 Code: a nav on the left with what each display is showing, a slim header with each
   page's actions, neutral surfaces with hairline borders, and settings grouped in cards
+- HTML wallpapers run in a sandboxed frame on a local web origin, so a downloaded page can no longer
+  use Backdrop's commands; pausing and muting now also apply to their audio and video
+- Scene scripts can no longer reach the network

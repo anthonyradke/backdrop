@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-thumb"
+description = "Enables the save_thumb command without any pre-configured scope."
+commands.allow = ["save_thumb"]
+
+[[permission]]
+identifier = "deny-save-thumb"
+description = "Denies the save_thumb command without any pre-configured scope."
+commands.deny = ["save_thumb"]

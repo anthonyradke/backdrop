@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-workshop-browse"
+description = "Enables the workshop_browse command without any pre-configured scope."
+commands.allow = ["workshop_browse"]
+
+[[permission]]
+identifier = "deny-workshop-browse"
+description = "Denies the workshop_browse command without any pre-configured scope."
+commands.deny = ["workshop_browse"]

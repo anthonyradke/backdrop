@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-wallpaper"
+description = "Enables the set_wallpaper command without any pre-configured scope."
+commands.allow = ["set_wallpaper"]
+
+[[permission]]
+identifier = "deny-set-wallpaper"
+description = "Denies the set_wallpaper command without any pre-configured scope."
+commands.deny = ["set_wallpaper"]

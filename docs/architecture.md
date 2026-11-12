@@ -21,6 +21,7 @@ displays, applies native image wallpapers, and handles pausing.
 - `puppet.js` reads `.mdl` meshes, skeletons and 3D models, `particles.js` simulates particle systems, `text.js` draws
   text and plays sound
 - `script.js` runs SceneScript in a Worker with no network access or access to the app's commands
+  (see [Untrusted content](#untrusted-content))
 
 Stock shaders, effects and script classes aren't part of a wallpaper or of Backdrop. They are read from
 Wallpaper Engine's install through `media://we-assets/`, so it has to stay installed. An effect that fails is
@@ -39,8 +40,21 @@ restarts, players are recreated automatically.
 
 Files reach the player through a custom `media://`
 protocol with HTTP range support. If a WebView cannot play video through that protocol, the player falls
-back to a loopback HTTP server bound to `127.0.0.1` on a random port, with a per-session secret token in
-the request path.
+back to a loopback HTTP server bound to `127.0.0.1`, with a per-session secret token in the request path.
+
+## Untrusted content
+
+HTML wallpapers and SceneScript come from other people, so neither can reach the app's commands:
+
+- Tauri treats a page served from one of the app's own protocols, `media://` included, as part of the
+  app. An HTML wallpaper therefore runs in a sandboxed iframe on the loopback server's origin instead,
+  under `/w/<item token>/<id>/web/`. The token is derived from the session secret and the item id, so
+  a page reads only its own folder. The server injects `webshim.js` into the page's HTML, which
+  provides Wallpaper Engine's web API and applies Backdrop's mute and pause settings.
+- Commands have permissions (`build.rs`, `capabilities/`). The library window gets them all; player
+  windows get only the six they use.
+- A content security policy (`tauri.conf.json`) limits both windows to the app's own files, `media://`
+  and the loopback server. SceneScript Workers inherit it, which keeps scripts off the network.
 
 ## Rotation (`rotation.rs`)
 

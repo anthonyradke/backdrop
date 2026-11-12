@@ -85,7 +85,8 @@ flowchart LR
 - A spanned wallpaper uses a single window over the rectangle around all displays, so it needs one decoder and
   stays in sync.
 - Files reach the player through a custom `media://` protocol with HTTP range support, with a loopback HTTP
-  server as the fallback.
+  server as the fallback. HTML wallpapers run on the loopback server's origin in a sandboxed frame, so
+  they can't call the app's commands.
 - Scenes are unpacked from `scene.pkg` and rendered in the player page. The renderer reads Wallpaper Engine's
   texture and model formats, translates its shaders to GLSL ES 3.00 and runs SceneScript in a Worker with no
   network access.
@@ -132,8 +133,9 @@ releases and running the app locally.
 - With mixed display scaling, the player on a secondary display renders at the primary display's scale, so video
   can look slightly softer there.
 - A spanned still image uses the Windows Span position, which ignores the Fit setting.
-- HTML wallpapers can't be paused from outside. The player posts `{ backdrop: { paused, muted, volume, speed } }`
-  to the page, and a page that listens for it can stop its own animation loop.
+- HTML wallpapers can't be fully paused from outside. Pausing stops their audio and video elements, and the
+  player posts `{ backdrop: { paused, muted, volume, speed } }` to the page so it can stop its own animation
+  loop.
 - Codec detection reads MP4 and MOV headers only.
 
 ## Credits

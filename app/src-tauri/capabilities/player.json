@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "player",
+  "description": "Wallpaper players: what they need to show a wallpaper and nothing else",
+  "windows": [
+    "wp-*"
+  ],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-player-init",
+    "allow-player-log",
+    "allow-save-frame",
+    "allow-cursor-position",
+    "allow-audio-spectrum",
+    "allow-now-playing"
+  ]
+}

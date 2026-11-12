@@ -60,8 +60,11 @@ function swap(p) {
   } else if (p.kind === "web") {
     next = document.createElement("iframe");
     next.setAttribute("allow", "autoplay; fullscreen");
+    // Pages from media:// count as the app itself and could call its commands, so a wallpaper runs
+    // on the loopback server's origin (see loopback.rs). Without it, it gets an opaque origin.
+    next.setAttribute("sandbox", p.web ? "allow-scripts allow-same-origin allow-forms allow-pointer-lock" : "allow-scripts");
     next.addEventListener("load", () => { reveal(); if (cur) show(cur); }, { once: true });
-    next.src = url(p.src);
+    next.src = url(p.src, p.web || BASE);
   } else {
     next = document.createElement("img");
     next.src = url(p.src);

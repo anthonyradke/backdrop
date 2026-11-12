@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-span-wallpaper"
+description = "Enables the span_wallpaper command without any pre-configured scope."
+commands.allow = ["span_wallpaper"]
+
+[[permission]]
+identifier = "deny-span-wallpaper"
+description = "Denies the span_wallpaper command without any pre-configured scope."
+commands.deny = ["span_wallpaper"]

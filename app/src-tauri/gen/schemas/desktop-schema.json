@@ -345,6 +345,402 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the audio_spectrum command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-audio-spectrum",
+          "markdownDescription": "Enables the audio_spectrum command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the check_update command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-check-update",
+          "markdownDescription": "Enables the check_update command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the clear_wallpaper command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-clear-wallpaper",
+          "markdownDescription": "Enables the clear_wallpaper command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the cursor_position command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cursor-position",
+          "markdownDescription": "Enables the cursor_position command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the delete_items command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-delete-items",
+          "markdownDescription": "Enables the delete_items command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-state",
+          "markdownDescription": "Enables the get_state command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the import_paths command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-import-paths",
+          "markdownDescription": "Enables the import_paths command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the install_update command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-install-update",
+          "markdownDescription": "Enables the install_update command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the next_wallpaper command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-next-wallpaper",
+          "markdownDescription": "Enables the next_wallpaper command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the now_playing command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-now-playing",
+          "markdownDescription": "Enables the now_playing command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the open_library_dir command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-library-dir",
+          "markdownDescription": "Enables the open_library_dir command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the pick_files command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-pick-files",
+          "markdownDescription": "Enables the pick_files command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the player_init command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-player-init",
+          "markdownDescription": "Enables the player_init command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the player_log command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-player-log",
+          "markdownDescription": "Enables the player_log command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the rename_item command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-rename-item",
+          "markdownDescription": "Enables the rename_item command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the reset_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-reset-settings",
+          "markdownDescription": "Enables the reset_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the save_frame command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-save-frame",
+          "markdownDescription": "Enables the save_frame command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the save_thumb command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-save-thumb",
+          "markdownDescription": "Enables the save_thumb command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_autostart command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-autostart",
+          "markdownDescription": "Enables the set_autostart command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_in_rotation command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-in-rotation",
+          "markdownDescription": "Enables the set_in_rotation command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_paused command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-paused",
+          "markdownDescription": "Enables the set_paused command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_wallpaper command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-wallpaper",
+          "markdownDescription": "Enables the set_wallpaper command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the span_wallpaper command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-span-wallpaper",
+          "markdownDescription": "Enables the span_wallpaper command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the update_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-update-settings",
+          "markdownDescription": "Enables the update_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the update_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-update-state",
+          "markdownDescription": "Enables the update_state command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the workshop_add command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-workshop-add",
+          "markdownDescription": "Enables the workshop_add command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the workshop_browse command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-workshop-browse",
+          "markdownDescription": "Enables the workshop_browse command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the workshop_hide command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-workshop-hide",
+          "markdownDescription": "Enables the workshop_hide command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the workshop_open command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-workshop-open",
+          "markdownDescription": "Enables the workshop_open command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the workshop_open_steam command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-workshop-open-steam",
+          "markdownDescription": "Enables the workshop_open_steam command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the workshop_subscribe command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-workshop-subscribe",
+          "markdownDescription": "Enables the workshop_subscribe command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the workshop_subscribed command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-workshop-subscribed",
+          "markdownDescription": "Enables the workshop_subscribed command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the workshop_unhide_all command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-workshop-unhide-all",
+          "markdownDescription": "Enables the workshop_unhide_all command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the audio_spectrum command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-audio-spectrum",
+          "markdownDescription": "Denies the audio_spectrum command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the check_update command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-check-update",
+          "markdownDescription": "Denies the check_update command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the clear_wallpaper command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-clear-wallpaper",
+          "markdownDescription": "Denies the clear_wallpaper command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cursor_position command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cursor-position",
+          "markdownDescription": "Denies the cursor_position command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the delete_items command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-delete-items",
+          "markdownDescription": "Denies the delete_items command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-state",
+          "markdownDescription": "Denies the get_state command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the import_paths command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-import-paths",
+          "markdownDescription": "Denies the import_paths command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the install_update command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-install-update",
+          "markdownDescription": "Denies the install_update command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the next_wallpaper command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-next-wallpaper",
+          "markdownDescription": "Denies the next_wallpaper command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the now_playing command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-now-playing",
+          "markdownDescription": "Denies the now_playing command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the open_library_dir command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-library-dir",
+          "markdownDescription": "Denies the open_library_dir command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the pick_files command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-pick-files",
+          "markdownDescription": "Denies the pick_files command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the player_init command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-player-init",
+          "markdownDescription": "Denies the player_init command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the player_log command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-player-log",
+          "markdownDescription": "Denies the player_log command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the rename_item command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-rename-item",
+          "markdownDescription": "Denies the rename_item command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the reset_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-reset-settings",
+          "markdownDescription": "Denies the reset_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the save_frame command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-save-frame",
+          "markdownDescription": "Denies the save_frame command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the save_thumb command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-save-thumb",
+          "markdownDescription": "Denies the save_thumb command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_autostart command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-autostart",
+          "markdownDescription": "Denies the set_autostart command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_in_rotation command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-in-rotation",
+          "markdownDescription": "Denies the set_in_rotation command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_paused command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-paused",
+          "markdownDescription": "Denies the set_paused command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_wallpaper command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-wallpaper",
+          "markdownDescription": "Denies the set_wallpaper command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the span_wallpaper command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-span-wallpaper",
+          "markdownDescription": "Denies the span_wallpaper command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the update_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-update-settings",
+          "markdownDescription": "Denies the update_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the update_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-update-state",
+          "markdownDescription": "Denies the update_state command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the workshop_add command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-workshop-add",
+          "markdownDescription": "Denies the workshop_add command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the workshop_browse command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-workshop-browse",
+          "markdownDescription": "Denies the workshop_browse command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the workshop_hide command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-workshop-hide",
+          "markdownDescription": "Denies the workshop_hide command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the workshop_open command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-workshop-open",
+          "markdownDescription": "Denies the workshop_open command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the workshop_open_steam command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-workshop-open-steam",
+          "markdownDescription": "Denies the workshop_open_steam command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the workshop_subscribe command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-workshop-subscribe",
+          "markdownDescription": "Denies the workshop_subscribe command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the workshop_subscribed command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-workshop-subscribed",
+          "markdownDescription": "Denies the workshop_subscribed command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the workshop_unhide_all command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-workshop-unhide-all",
+          "markdownDescription": "Denies the workshop_unhide_all command without any pre-configured scope."
+        },
+        {
           "description": "This permission set configures if your\napplication can enable or disable auto\nstarting the application on boot.\n\n#### Granted Permissions\n\nIt allows all to check, enable and\ndisable the automatic start on boot.\n\n\n#### This default permission set includes:\n\n- `allow-enable`\n- `allow-disable`\n- `allow-is-enabled`",
           "type": "string",
           "const": "autostart:default",
