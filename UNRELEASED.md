@@ -14,3 +14,5 @@ this list into the release notes and empties it for the next batch.
 - HTML wallpapers run in a sandboxed frame on a local web origin, so a downloaded page can no longer
   use Backdrop's commands; pausing and muting now also apply to their audio and video
 - Scene scripts can no longer reach the network
+- Scenes play at their real speed; before, they ran at half speed or slower depending on the
+  display's refresh rate

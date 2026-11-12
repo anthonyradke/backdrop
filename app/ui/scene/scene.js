@@ -1201,12 +1201,16 @@ ${fs}`]]) {
   start() {
     if (this.running) return;
     this.running = true;
+    // Frames land on a fixed grid of 1/fps, whatever the display's refresh rate. The clock advances
+    // by the real time since the last drawn frame, so skipped display frames still count.
     let clock = this.time, last = performance.now(), due = 0;
     const tick = (now) => {
       if (!this.running) return;
       this.raf = requestAnimationFrame(tick);
-      if (this.paused || now < due) { last = now; return; }
-      due = now + 1000 / this.fps - 2;
+      if (this.paused) { last = now; return; }
+      if (now < due - 2) return;
+      const interval = 1000 / this.fps;
+      due = now - due > interval ? now + interval : due + interval;
       clock += Math.min(0.25, (now - last) / 1000) * (this.speed || 1);
       last = now;
       this.renderAt(clock);
