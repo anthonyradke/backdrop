@@ -62,3 +62,8 @@ pub fn steam_dir() -> Option<std::path::PathBuf> {
     let home = std::path::PathBuf::from(std::env::var_os("HOME")?);
     [".steam/steam", ".local/share/Steam"].iter().map(|p| home.join(p)).find(|p| p.is_dir())
 }
+
+/// Minutes since midnight. UTC here: this backend only exists for development.
+pub fn local_minutes() -> u16 {
+    ((crate::common::now().rem_euclid(86_400)) / 60) as u16
+}

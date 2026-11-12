@@ -275,6 +275,15 @@ const STRINGS = {
     "Properties": "Propiedades",
     "Update Workshop wallpapers": "Actualizar fondos del Workshop",
     "When Steam downloads a new version of a Workshop wallpaper, it replaces the one in your library. Its name, settings and place stay.": "Cuando Steam descarga una versión nueva de un fondo del Workshop, sustituye a la de tu biblioteca. Conserva su nombre, ajustes y lugar.",
+    "Only on": "Solo en",
+    "A display with its own list rotates through that instead.": "Una pantalla con su propia lista rota entre los de esa lista.",
+    "Schedule": "Horario",
+    "At each time the wallpaper changes to the one picked, for example a light one for the day and a dark one for the evening. Rotation, if it's on, carries on from there.": "A cada hora el fondo cambia al elegido, por ejemplo uno claro de día y uno oscuro por la noche. La rotación, si está activada, sigue a partir de ahí.",
+    "Time": "Hora",
+    "Display": "Pantalla",
+    "Deleted wallpaper": "Fondo eliminado",
+    "No times set": "Sin horas",
+    "Add a time": "Añadir una hora",
   },
 
   de: {
@@ -548,6 +557,15 @@ const STRINGS = {
     "Properties": "Eigenschaften",
     "Update Workshop wallpapers": "Workshop-Hintergründe aktualisieren",
     "When Steam downloads a new version of a Workshop wallpaper, it replaces the one in your library. Its name, settings and place stay.": "Lädt Steam eine neue Version eines Workshop-Hintergrunds herunter, ersetzt sie die in deiner Bibliothek. Name, Einstellungen und Platz bleiben erhalten.",
+    "Only on": "Nur auf",
+    "A display with its own list rotates through that instead.": "Ein Bildschirm mit eigener Liste wechselt stattdessen durch diese.",
+    "Schedule": "Zeitplan",
+    "At each time the wallpaper changes to the one picked, for example a light one for the day and a dark one for the evening. Rotation, if it's on, carries on from there.": "Zu jeder Uhrzeit wechselt das Hintergrundbild zum gewählten, etwa ein helles für den Tag und ein dunkles für den Abend. Ist die Rotation an, macht sie von dort aus weiter.",
+    "Time": "Uhrzeit",
+    "Display": "Bildschirm",
+    "Deleted wallpaper": "Gelöschtes Hintergrundbild",
+    "No times set": "Keine Uhrzeiten",
+    "Add a time": "Uhrzeit hinzufügen",
   },
 
   "zh-Hans": {
@@ -821,6 +839,15 @@ const STRINGS = {
     "Properties": "属性",
     "Update Workshop wallpapers": "更新创意工坊壁纸",
     "When Steam downloads a new version of a Workshop wallpaper, it replaces the one in your library. Its name, settings and place stay.": "Steam 下载创意工坊壁纸的新版本后，会替换资源库中的旧版本。名称、设置和位置保持不变。",
+    "Only on": "仅在",
+    "A display with its own list rotates through that instead.": "有自己列表的显示器会改为轮换该列表。",
+    "Schedule": "日程",
+    "At each time the wallpaper changes to the one picked, for example a light one for the day and a dark one for the evening. Rotation, if it's on, carries on from there.": "到每个时间点，壁纸会换成所选的那张，比如白天用亮色、晚上用暗色。如果开启了轮换，会从那里继续。",
+    "Time": "时间",
+    "Display": "显示器",
+    "Deleted wallpaper": "已删除的壁纸",
+    "No times set": "未设置时间",
+    "Add a time": "添加时间",
   },
 };
 

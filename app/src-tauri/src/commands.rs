@@ -147,6 +147,11 @@ pub fn delete_items(core: State<'_, Core>, ids: Vec<String>) {
         c.assignments.retain(|_, v| !ids.contains(v));
         c.span.take_if(|v| ids.contains(v));
         c.rotation.pool.retain(|v| !ids.contains(v));
+        for list in c.rotation.display_pools.values_mut() {
+            list.retain(|v| !ids.contains(v));
+        }
+        c.rotation.display_pools.retain(|_, list| !list.is_empty());
+        c.schedule.retain(|s| !ids.contains(&s.item));
     });
     {
         let mut lib = core.library.lock().unwrap();
@@ -320,6 +325,39 @@ pub fn set_in_rotation(core: State<'_, Core>, ids: Vec<String>, on: bool) -> Res
             c.rotation.pool.retain(|x| !ids.contains(x));
         }
     });
+    Ok(())
+}
+
+/// Adds items to (or takes them off) one display's own rotation list, used with "different on each
+/// display".
+#[tauri::command]
+pub fn set_in_display_rotation(core: State<'_, Core>, ids: Vec<String>, display: String, on: bool) -> Result<(), String> {
+    if !ids.iter().all(|id| common::valid_id(id)) {
+        return Err("bad id".into());
+    }
+    core.update_config(|c| {
+        let list = c.rotation.display_pools.entry(display.clone()).or_default();
+        if on {
+            for id in ids {
+                if !list.contains(&id) {
+                    list.push(id);
+                }
+            }
+        } else {
+            list.retain(|x| !ids.contains(x));
+        }
+        c.rotation.display_pools.retain(|_, list| !list.is_empty());
+    });
+    Ok(())
+}
+
+/// Replaces the schedule: the times of day the wallpaper changes, each to a chosen wallpaper.
+#[tauri::command]
+pub fn set_schedule(core: State<'_, Core>, slots: Vec<config::Slot>) -> Result<(), String> {
+    if slots.iter().any(|s| s.at >= 24 * 60 || !common::valid_id(&s.item)) {
+        return Err("bad schedule".into());
+    }
+    core.update_config(|c| c.schedule = slots);
     Ok(())
 }
 

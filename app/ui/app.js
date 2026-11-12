@@ -147,6 +147,9 @@ function entries() {
 }
 
 const pool = () => S.state?.config.rotation.pool ?? [];
+const displayPool = (key) => S.state?.config.rotation.displayPools?.[key] ?? [];
+// Each display's own rotation list only matters with a different wallpaper on each display.
+const perDisplayLists = () => S.state.displays.length > 1 && S.state.config.rotation.perDisplay && !spanned();
 const inRotation = (id) => pool().includes(id);
 const spanned = () => S.state?.config.span ?? null;
 
@@ -355,6 +358,14 @@ const actions = {
   },
   setSpan: (el) => call("span_wallpaper", { id: el.dataset.id }),
   rotation: (el) => call("set_in_rotation", { ids: [el.dataset.id], on: !inRotation(el.dataset.id) }),
+  displayRotation: (el) => call("set_in_display_rotation", { ids: [el.dataset.id], display: el.dataset.display, on: !displayPool(el.dataset.display).includes(el.dataset.id) }),
+  schedAdd: () => {
+    const sel = heroItem()?.id ?? S.state.items[0]?.id;
+    if (!sel) return;
+    const now = new Date();
+    return saveSchedule([...schedule(), { at: (now.getHours() + 1) % 24 * 60, item: sel, display: null }]);
+  },
+  schedRemove: (el) => saveSchedule(schedule().filter((_, i) => i !== Number(el.dataset.i))),
   next: () => call("next_wallpaper"),
   remove: async (el) => {
     const e = entries().find((x) => x.id === el.dataset.id);
@@ -406,6 +417,20 @@ document.addEventListener("click", (ev) => {
 });
 
 document.addEventListener("change", (ev) => {
+  const sch = ev.target.closest?.(".sched-in");
+  if (sch) {
+    const slots = schedule().map((s) => ({ ...s }));
+    const slot = slots[Number(sch.dataset.i)];
+    if (!slot) return;
+    if (sch.dataset.f === "at") {
+      const [h, m] = sch.value.split(":").map(Number);
+      if (!Number.isFinite(h) || !Number.isFinite(m)) return;
+      slot.at = h * 60 + m;
+    } else if (sch.dataset.f === "item") slot.item = sch.value;
+    else slot.display = sch.value || null;
+    saveSchedule(slots).catch(() => {});
+    return;
+  }
   const p = ev.target.closest?.(".prop-in");
   if (p) {
     const def = S.props[p.dataset.id]?.properties?.[p.dataset.k];
@@ -677,7 +702,9 @@ function sideHtml(e) {
       </div>
       <div class="group">
         <div class="card"><div class="row"><div class="what">${tr("In rotation")}<div class="hint">${tr("Rotation picks from these. Set the timer in Settings.")}</div></div>
-          <button class="sw press ${rot ? "on" : ""}" data-act="rotation" data-id="${e.id}" role="switch" aria-checked="${rot}" aria-label="${esc(tr("In rotation"))}"></button></div></div>
+          <button class="sw press ${rot ? "on" : ""}" data-act="rotation" data-id="${e.id}" role="switch" aria-checked="${rot}" aria-label="${esc(tr("In rotation"))}"></button></div>
+        ${perDisplayLists() ? `<div class="row"><div class="what">${tr("Only on")}<div class="hint">${tr("A display with its own list rotates through that instead.")}</div>
+          <div class="where">${displays.map((d) => { const own = displayPool(d.key).includes(e.id); return `<button class="btn sm press ${own ? "on" : ""}" data-act="displayRotation" data-id="${e.id}" data-display="${esc(d.key)}" aria-pressed="${own}">${esc(d.name)}</button>`; }).join("")}</div></div></div>` : ""}</div>
       </div>
       ${propsHtml(e)}
       <div class="group">
@@ -1106,6 +1133,29 @@ const row = (what, hint, control) =>
   `<div class="set-row"><div class="what">${what}${hint ? `<div class="hint">${hint}</div>` : ""}</div>${control.replace('aria-label="{name}"', `aria-label="${esc(what.replace(/<[^>]*>/g, ""))}"`)}</div>`;
 const section = (title, sub, rows) => `<div class="sec"><h3>${title}</h3>${sub ? `<p>${sub}</p>` : ""}<div class="card">${rows}</div></div>`;
 
+// ---------- schedule ----------
+
+const schedule = () => S.state.config.schedule ?? [];
+const saveSchedule = (slots) => call("set_schedule", { slots: [...slots].sort((a, b) => a.at - b.at) });
+const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+
+function scheduleRows() {
+  const items = entries();
+  const ds = S.state.displays;
+  const rows = schedule().map((slot, i) => {
+    const known = items.some((e) => e.id === slot.item);
+    return `<div class="set-row sched" data-key="sch-${i}">
+      <input type="time" class="sched-in" data-i="${i}" data-f="at" value="${hhmm(slot.at)}" aria-label="${esc(tr("Time"))}">
+      <select class="select sched-in" data-i="${i}" data-f="item" aria-label="${esc(tr("Wallpaper"))}">${known ? "" : `<option value="${esc(slot.item)}" selected>${esc(tr("Deleted wallpaper"))}</option>`}${items.map((e) => `<option value="${e.id}" ${e.id === slot.item ? "selected" : ""}>${esc(e.name)}</option>`).join("")}</select>
+      ${ds.length > 1 && !spanned() ? `<select class="select sched-in" data-i="${i}" data-f="display" aria-label="${esc(tr("Display"))}"><option value="">${esc(tr("All displays"))}</option>${ds.map((d) => `<option value="${esc(d.key)}" ${slot.display === d.key ? "selected" : ""}>${esc(d.name)}</option>`).join("")}</select>` : ""}
+      <span class="sp"></span>
+      <button class="btn sm icon ghost press" data-act="schedRemove" data-i="${i}" title="${esc(tr("Remove"))}" aria-label="${esc(tr("Remove"))}">${ICON.close}</button>
+    </div>`;
+  });
+  rows.push(row(schedule().length ? "" : tr("No times set"), "", `<button class="btn sm press" data-act="schedAdd" ${S.state.items.length ? "" : "disabled"}>${ICON.plus}${tr("Add a time")}</button>`));
+  return rows.join("");
+}
+
 function renderSettings() {
   const c = S.state.config;
   const r = c.rotation;
@@ -1147,6 +1197,7 @@ function renderSettings() {
       row(tr("Random after waking"), tr("Picks a random wallpaper when the computer wakes from sleep, for example when you open the lid."), offOn("rotOnWake", r.onWake)),
       row(tr("Next wallpaper"), tr("Also in the {tray} menu.", { tray: trayName() }), `<button class="btn sm press" data-act="next">${ICON.cycle}${tr("Next")}</button>`),
     ].join(""))}
+    ${section(tr("Schedule"), tr("At each time the wallpaper changes to the one picked, for example a light one for the day and a dark one for the evening. Rotation, if it's on, carries on from there."), scheduleRows())}
     ${section(tr("Saving power"), "", [
       row(tr("Pause when covered"), tr("Stops a wallpaper while a maximized or fullscreen app hides it."), offOn("pauseCovered", c.pauseCovered)),
       row(tr("Pause when an app is in front"), tr("Plays only while the desktop has focus on that display."), offOn("pauseFocused", c.pauseFocused)),

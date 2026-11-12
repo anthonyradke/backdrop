@@ -20,6 +20,8 @@ const COMMANDS: &[&str] = &[
     "player_init",
     "player_log",
     "set_in_rotation",
+    "set_in_display_rotation",
+    "set_schedule",
     "next_wallpaper",
     "save_frame",
     "reset_settings",

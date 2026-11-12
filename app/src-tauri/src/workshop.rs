@@ -592,9 +592,14 @@ fn update(core: &Core, old: &Item, local: &Local) -> Result<(), String> {
                 v.clone_from(&new.id);
             }
         }
-        for v in c.rotation.pool.iter_mut() {
+        for v in c.rotation.pool.iter_mut().chain(c.rotation.display_pools.values_mut().flatten()) {
             if *v == old.id {
                 v.clone_from(&new.id);
+            }
+        }
+        for slot in c.schedule.iter_mut() {
+            if slot.item == old.id {
+                slot.item.clone_from(&new.id);
             }
         }
     });

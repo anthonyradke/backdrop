@@ -39,7 +39,9 @@ Displays and playback
   saver on, and while the screen is locked.
 - A full-resolution frame of each moving wallpaper is set as the Windows wallpaper, so the desktop matches before
   Backdrop starts.
-- Rotation on a timer, in order or shuffled, with a random pick at startup or after waking from sleep.
+- Rotation on a timer, in order or shuffled, with a random pick at startup or after waking from sleep. With a
+  different wallpaper on each display, a display can have its own list.
+- A schedule: at set times of day, a chosen wallpaper on all displays or on one.
 
 Library
 - A grid with resolution badges and codec details, and a warning on HEVC and ProRes files, which WebView2 can't

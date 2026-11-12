@@ -70,8 +70,15 @@ HTML wallpapers and SceneScript come from other people, so neither can reach the
 ## Rotation (`rotation.rs`)
 
 A background task checks the interval every 20 seconds. Picks come from the items marked for rotation, or
-from the whole library when none are marked. The engine treats a gap of more than 30 seconds between ticks as
-a wake from sleep.
+from the whole library when none are marked. With a different wallpaper on each display, a display that has
+its own list (`rotation.displayPools`) picks from that instead. The engine treats a gap of more than 30
+seconds between ticks as a wake from sleep.
+
+The same task runs the schedule: for all displays, and for each display that has times of its own, the
+slot whose time came most recently (yesterday's last one before the first of the day) is the one that
+should be showing. It's applied when that changes and at startup, where it takes over from the random
+pick, so the wallpaper can still be changed by hand in between. Times are local wall-clock minutes from
+`GetLocalTime`, so daylight saving time needs no handling of its own.
 
 ## Steam Workshop (`workshop.rs`)
 

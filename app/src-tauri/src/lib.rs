@@ -402,7 +402,9 @@ pub fn run() {
             *app.state::<Core>().engine.lock().unwrap() = Some(tx);
             rotation::spawn(handle.clone());
             workshop::spawn(handle.clone());
-            if app.state::<Core>().config.lock().unwrap().rotation.on_start {
+            // A schedule says what should be showing now, so it takes over from a random pick.
+            let start = { let c = app.state::<Core>().config.lock().unwrap().clone(); c.rotation.on_start && c.schedule.is_empty() };
+            if start {
                 rotation::trigger(&handle, rotation::Why::Start);
             }
 
@@ -431,6 +433,8 @@ pub fn run() {
             commands::player_init,
             commands::player_log,
             commands::set_in_rotation,
+            commands::set_in_display_rotation,
+            commands::set_schedule,
             commands::next_wallpaper,
             commands::save_frame,
             commands::reset_settings,

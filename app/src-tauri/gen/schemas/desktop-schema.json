@@ -465,6 +465,12 @@
           "markdownDescription": "Enables the set_autostart command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_in_display_rotation command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-in-display-rotation",
+          "markdownDescription": "Enables the set_in_display_rotation command without any pre-configured scope."
+        },
+        {
           "description": "Enables the set_in_rotation command without any pre-configured scope.",
           "type": "string",
           "const": "allow-set-in-rotation",
@@ -481,6 +487,12 @@
           "type": "string",
           "const": "allow-set-paused",
           "markdownDescription": "Enables the set_paused command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_schedule command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-schedule",
+          "markdownDescription": "Enables the set_schedule command without any pre-configured scope."
         },
         {
           "description": "Enables the set_wallpaper command without any pre-configured scope.",
@@ -675,6 +687,12 @@
           "markdownDescription": "Denies the set_autostart command without any pre-configured scope."
         },
         {
+          "description": "Denies the set_in_display_rotation command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-in-display-rotation",
+          "markdownDescription": "Denies the set_in_display_rotation command without any pre-configured scope."
+        },
+        {
           "description": "Denies the set_in_rotation command without any pre-configured scope.",
           "type": "string",
           "const": "deny-set-in-rotation",
@@ -691,6 +709,12 @@
           "type": "string",
           "const": "deny-set-paused",
           "markdownDescription": "Denies the set_paused command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_schedule command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-schedule",
+          "markdownDescription": "Denies the set_schedule command without any pre-configured scope."
         },
         {
           "description": "Denies the set_wallpaper command without any pre-configured scope.",

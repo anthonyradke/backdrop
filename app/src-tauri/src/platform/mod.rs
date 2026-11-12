@@ -10,6 +10,7 @@
 //! - `desktop_pressed`: whether the left button is down with the desktop itself under the cursor
 //! - `after_close`: repaint the desktop after a player window closes
 //! - `steam_dir`: where Steam is installed
+//! - `local_minutes`: the local time of day, for the schedule
 //! - `on_battery`, `low_power`, `locked`, `cleanup`
 
 #[cfg(windows)]

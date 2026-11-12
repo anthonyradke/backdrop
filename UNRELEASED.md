@@ -53,3 +53,5 @@ this list into the release notes and empties it for the next batch.
   visualizers, and the track that's playing
 - Workshop wallpapers stay up to date: when Steam downloads a new version, it replaces the one in the
   library, keeping its name, settings and place (switch in Settings)
+- A schedule in Settings changes the wallpaper at set times of day, on all displays or on one
+- With a different wallpaper on each display, each display can have its own rotation list

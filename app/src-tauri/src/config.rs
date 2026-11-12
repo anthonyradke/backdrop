@@ -37,12 +37,27 @@ pub struct Rotation {
     pub on_start: bool,
     /// Pick a random wallpaper after the computer wakes from sleep (opening the lid).
     pub on_wake: bool,
+    /// Display key -> its own list to rotate through, with "different on each display". A display
+    /// without one (or with an empty one) uses `pool`.
+    pub display_pools: BTreeMap<String, Vec<String>>,
 }
 
 impl Default for Rotation {
     fn default() -> Self {
-        Self { minutes: 0, order: Order::Shuffle, per_display: false, pool: vec![], on_start: false, on_wake: false }
+        Self { minutes: 0, order: Order::Shuffle, per_display: false, pool: vec![], on_start: false, on_wake: false, display_pools: BTreeMap::new() }
     }
+}
+
+/// A time of day when the wallpaper changes to a chosen one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Slot {
+    /// Minutes after midnight, local time.
+    pub at: u16,
+    pub item: String,
+    /// One display's key, or none for all of them.
+    #[serde(default)]
+    pub display: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -77,6 +92,8 @@ pub struct Config {
     /// Import new versions of workshop wallpapers when Steam downloads an update.
     pub workshop_updates: bool,
     pub rotation: Rotation,
+    /// Times of day the wallpaper changes, in no particular order.
+    pub schedule: Vec<Slot>,
 }
 
 impl Default for Config {
@@ -98,6 +115,7 @@ impl Default for Config {
             language: String::new(),
             workshop_updates: true,
             rotation: Rotation::default(),
+            schedule: vec![],
         }
     }
 }

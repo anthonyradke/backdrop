@@ -417,3 +417,10 @@ pub fn steam_dir() -> Option<std::path::PathBuf> {
     };
     path.is_dir().then_some(path)
 }
+
+/// Minutes since local midnight, by the computer's clock and time zone (so daylight saving time
+/// is already applied).
+pub fn local_minutes() -> u16 {
+    let t = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
+    t.wHour * 60 + t.wMinute
+}

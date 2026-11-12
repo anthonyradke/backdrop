@@ -46,6 +46,8 @@
     "allow-check-update",
     "allow-install-update",
     "allow-item-properties",
-    "allow-set-item-properties"
+    "allow-set-item-properties",
+    "allow-set-in-display-rotation",
+    "allow-set-schedule"
   ]
 }
