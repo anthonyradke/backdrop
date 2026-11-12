@@ -23,19 +23,15 @@ pub struct ImportResult {
     errors: Vec<String>,
 }
 
-async fn import_all(core: &Core, paths: Vec<PathBuf>) -> ImportResult {
+async fn import_all(app: &AppHandle, paths: Vec<PathBuf>) -> ImportResult {
     let mut res = ImportResult { ids: vec![], errors: vec![] };
+    let core = app.state::<Core>();
     for path in paths {
-        let (root, existing) = {
-            let lib = core.library.lock().unwrap();
-            (lib.root.clone(), lib.items.clone())
-        };
-        let p = path.clone();
-        let out = tauri::async_runtime::spawn_blocking(move || library::import(&root, &p, &existing)).await;
+        let a = app.clone();
+        let out = tauri::async_runtime::spawn_blocking(move || library::import_into(&a.state::<Core>(), &path, false, |_, _| {})).await;
         match out {
             Ok(Ok(item)) => {
                 res.ids.push(item.id.clone());
-                core.library.lock().unwrap().items.insert(item.id.clone(), item);
                 core.emit_state();
             }
             Ok(Err(e)) => res.errors.push(e.to_string()),
@@ -49,13 +45,13 @@ async fn import_all(core: &Core, paths: Vec<PathBuf>) -> ImportResult {
 }
 
 #[tauri::command]
-pub async fn import_paths(core: State<'_, Core>, paths: Vec<String>) -> Result<ImportResult, String> {
-    Ok(import_all(&core, paths.into_iter().map(PathBuf::from).collect()).await)
+pub async fn import_paths(app: AppHandle, paths: Vec<String>) -> Result<ImportResult, String> {
+    Ok(import_all(&app, paths.into_iter().map(PathBuf::from).collect()).await)
 }
 
 /// Opens the system file picker (or folder picker, for HTML wallpapers) and imports the choice.
 #[tauri::command]
-pub async fn pick_files(app: AppHandle, core: State<'_, Core>, folder: bool) -> Result<ImportResult, String> {
+pub async fn pick_files(app: AppHandle, folder: bool) -> Result<ImportResult, String> {
     let picked: Vec<PathBuf> = if folder {
         app.dialog()
             .file()
@@ -77,7 +73,7 @@ pub async fn pick_files(app: AppHandle, core: State<'_, Core>, folder: bool) -> 
             .filter_map(|p| p.into_path().ok())
             .collect()
     };
-    Ok(import_all(&core, picked).await)
+    Ok(import_all(&app, picked).await)
 }
 
 /// Stores a thumbnail the library window rendered (JPEG as base64 or a data URL), optionally the

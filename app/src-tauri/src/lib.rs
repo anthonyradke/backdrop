@@ -67,6 +67,8 @@ pub struct Core {
     config_path: PathBuf,
     pub config: Mutex<Config>,
     pub library: Mutex<Library>,
+    /// Held for the whole of an import (see `library::import_into`).
+    pub import_lock: Mutex<()>,
     pub manual_pause: AtomicBool,
     pub displays: Mutex<Vec<DisplayView>>,
     /// Window label -> what that player should show.
@@ -379,6 +381,7 @@ pub fn run() {
                 config_path,
                 config: Mutex::new(config),
                 library: Mutex::new(library),
+                import_lock: Mutex::new(()),
                 manual_pause: AtomicBool::new(false),
                 displays: Mutex::new(vec![]),
                 players: Mutex::new(HashMap::new()),

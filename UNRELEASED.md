@@ -23,3 +23,5 @@ this list into the release notes and empties it for the next batch.
 - A scene whose script never finishes, or whose particles nest or burst without limit, no longer
   freezes the wallpaper or pins a CPU core
 - Scenes with uncompressed high-precision textures show them instead of white
+- Adding the same wallpaper twice at once (a drop while the Workshop sync imports it) no longer
+  breaks it, and a failed import leaves no half-copied folder behind

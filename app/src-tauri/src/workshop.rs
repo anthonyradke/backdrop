@@ -478,29 +478,43 @@ pub fn import(core: &Core, id: &str) -> Result<Item, String> {
         return Ok(item.clone());
     }
     let local = local_item(id).ok_or("Steam hasn't downloaded this one yet")?;
-    let (root, existing) = {
-        let lib = core.library.lock().unwrap();
-        (lib.root.clone(), lib.items.clone())
-    };
-    let mut item = library::import_linked(&root, &local.src, &existing).map_err(|e| e.to_string())?;
-    if !local.title.trim().is_empty() {
-        item.name = local.title.trim().to_string();
-    }
-    item.workshop = Some(id.to_string());
-    let dir = root.join(&item.id);
-    if item.kind == Kind::Web {
-        // HTML wallpapers get no client thumbnail, so use Wallpaper Engine's preview if it's a JPEG.
-        if let Some(prev) = std::fs::read_dir(&local.src).ok().and_then(|rd| {
-            rd.flatten().map(|e| e.path()).find(|p| {
-                p.file_stem().is_some_and(|s| s == "preview")
-                    && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("jpg") || e.eq_ignore_ascii_case("jpeg"))
-            })
-        }) {
-            let _ = std::fs::copy(prev, dir.join("thumb.jpg"));
+    let item = library::import_into(core, &local.src, true, |item, dir| {
+        if !local.title.trim().is_empty() {
+            item.name = local.title.trim().to_string();
         }
-    }
-    library::write_meta(&dir, &item).map_err(|e| e.to_string())?;
-    core.library.lock().unwrap().items.insert(item.id.clone(), item.clone());
+        item.workshop = Some(id.to_string());
+        if item.kind == Kind::Web {
+            // HTML wallpapers get no client thumbnail, so use Wallpaper Engine's preview if it's a JPEG.
+            if let Some(prev) = std::fs::read_dir(&local.src).ok().and_then(|rd| {
+                rd.flatten().map(|e| e.path()).find(|p| {
+                    p.file_stem().is_some_and(|s| s == "preview")
+                        && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("jpg") || e.eq_ignore_ascii_case("jpeg"))
+                })
+            }) {
+                let _ = std::fs::copy(prev, dir.join("thumb.jpg"));
+            }
+        }
+        if let Err(e) = library::write_meta(dir, item) {
+            log(format!("workshop item {id}: couldn't save its details: {e}"));
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    // The same file was already in the library, added by hand: it keeps its name, but now counts
+    // as this workshop item.
+    let item = if item.workshop.is_none() {
+        let mut lib = core.library.lock().unwrap();
+        match lib.items.get_mut(&item.id) {
+            Some(known) => {
+                known.workshop = Some(id.to_string());
+                let known = known.clone();
+                let _ = lib.save_meta(&known);
+                known
+            }
+            None => item,
+        }
+    } else {
+        item
+    };
     core.emit_state();
     log(format!("imported workshop item {id} as {}", item.id));
     Ok(item)

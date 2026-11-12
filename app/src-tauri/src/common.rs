@@ -116,6 +116,40 @@ pub fn hash_file(path: &Path) -> std::io::Result<String> {
     Ok(id_from_digest(&h.finalize()))
 }
 
+/// Like `hash_file`, for a folder: every file's path and contents, in a fixed order.
+pub fn hash_dir(dir: &Path) -> std::io::Result<String> {
+    let mut files = vec![];
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d)? {
+            let p = e?.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else {
+                files.push(p);
+            }
+        }
+    }
+    files.sort();
+    let mut h = Sha256::new();
+    let mut buf = vec![0u8; 1 << 20];
+    for p in files {
+        let rel = p.strip_prefix(dir).unwrap_or(&p).to_string_lossy().replace('\\', "/");
+        h.update(rel.as_bytes());
+        h.update([0]);
+        let mut f = std::fs::File::open(&p)?;
+        loop {
+            let n = f.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            h.update(&buf[..n]);
+        }
+        h.update([0]);
+    }
+    Ok(id_from_digest(&h.finalize()))
+}
+
 /// A display name from a file name: "my_cool-loop.mp4" -> "my cool loop".
 pub fn name_from_file(file_name: &str) -> String {
     let stem = Path::new(file_name)

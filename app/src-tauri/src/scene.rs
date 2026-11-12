@@ -121,7 +121,8 @@ fn folder_size(dir: &Path) -> u64 {
 pub fn import(root: &Path, src: &Path, existing: &HashMap<String, Item>) -> io::Result<Item> {
     let meta = project(src).ok_or_else(|| invalid("no project.json"))?;
     let pkg = src.join(PKG);
-    let id = common::hash_file(&if pkg.is_file() { pkg.clone() } else { src.join("project.json") })?;
+    // Loose files are hashed together, so two scenes that share a project.json stay apart.
+    let id = if pkg.is_file() { common::hash_file(&pkg)? } else { common::hash_dir(src)? };
     if let Some(item) = existing.get(&id) {
         return Ok(item.clone());
     }

@@ -27,6 +27,11 @@ impl Library {
         let mut items = HashMap::new();
         if let Ok(rd) = std::fs::read_dir(&root) {
             for e in rd.flatten() {
+                // Staging folders left by an import that was cut short.
+                if e.file_name().to_string_lossy().starts_with(".import-") {
+                    let _ = std::fs::remove_dir_all(e.path());
+                    continue;
+                }
                 let meta = e.path().join("meta.json");
                 if let Ok(Ok(item)) = std::fs::read(&meta).map(|b| serde_json::from_slice::<Item>(&b)) {
                     if common::valid_id(&item.id) && e.path().join(&item.file).is_file() {
@@ -94,16 +99,31 @@ fn other<E: std::fmt::Display>(e: E) -> io::Error {
     io::Error::other(e.to_string())
 }
 
-/// Copies a file or wallpaper folder into the library. Blocking; the caller adds the result to the map.
-/// Returns the existing item untouched if the same content is already there.
-pub fn import(root: &Path, src: &Path, existing: &HashMap<String, Item>) -> io::Result<Item> {
-    import_inner(root, src, existing, false)
+/// Imports into the library and adds the item to it. Blocking. One import runs at a time: two of
+/// the same content at once (a drop while the workshop sync imports it, say) would each clear the
+/// folder the other is writing. `finish` can adjust the new item before it's added.
+pub fn import_into(core: &crate::Core, src: &Path, link: bool, finish: impl FnOnce(&mut Item, &Path)) -> io::Result<Item> {
+    let _one_at_a_time = core.import_lock.lock().unwrap();
+    let (root, existing) = {
+        let lib = core.library.lock().unwrap();
+        (lib.root.clone(), lib.items.clone())
+    };
+    let mut item = import_inner(&root, src, &existing, link)?;
+    if existing.contains_key(&item.id) {
+        // Already there (or deleted meanwhile, in which case it stays deleted).
+        return Ok(item);
+    }
+    let dir = root.join(&item.id);
+    finish(&mut item, &dir);
+    core.library.lock().unwrap().items.insert(item.id.clone(), item.clone());
+    Ok(item)
 }
 
-/// Like `import`, but hard-links a single file instead of copying it when it's on the same drive.
-/// Used for Steam downloads, which Steam replaces rather than edits.
-pub fn import_linked(root: &Path, src: &Path, existing: &HashMap<String, Item>) -> io::Result<Item> {
-    import_inner(root, src, existing, true)
+/// Copies a file or wallpaper folder into the library. Blocking; the caller adds the result to the map.
+/// Returns the existing item untouched if the same content is already there.
+#[cfg(test)]
+pub fn import(root: &Path, src: &Path, existing: &HashMap<String, Item>) -> io::Result<Item> {
+    import_inner(root, src, existing, false)
 }
 
 fn import_inner(root: &Path, src: &Path, existing: &HashMap<String, Item>, link: bool) -> io::Result<Item> {
@@ -141,35 +161,39 @@ fn import_inner(root: &Path, src: &Path, existing: &HashMap<String, Item>, link:
         let dir = root.join(&id);
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir)?;
-        if source.starts_with(&staging) {
-            std::fs::rename(&source, dir.join(&file))?;
-        } else if !(link && std::fs::hard_link(&source, dir.join(&file)).is_ok()) {
-            std::fs::copy(&source, dir.join(&file))?;
+        // Anything that fails from here on takes the half-made folder with it.
+        let made = (|| {
+            if source.starts_with(&staging) {
+                std::fs::rename(&source, dir.join(&file))?;
+            } else if !(link && std::fs::hard_link(&source, dir.join(&file)).is_ok()) {
+                std::fs::copy(&source, dir.join(&file))?;
+            }
+            if kind == Kind::Web {
+                common::pack::extract(&dir.join(&file), &dir.join("web")).map_err(|e| other(format!("{file_name}: {e}")))?;
+            }
+            let stored = dir.join(&file);
+            let item = Item {
+                id: id.clone(),
+                name: if src.is_dir() { file_name.clone() } else { common::name_from_file(&file_name) },
+                kind,
+                size: std::fs::metadata(&stored)?.len(),
+                codec: if kind == Kind::Video { common::mp4_codec(&stored) } else { None },
+                fps: None,
+                file,
+                width: None,
+                height: None,
+                added: common::now(),
+                tags: vec![],
+                workshop: None,
+                preview: None,
+            };
+            write_meta(&dir, &item)?;
+            Ok(item)
+        })();
+        if made.is_err() {
+            let _ = std::fs::remove_dir_all(&dir);
         }
-        if kind == Kind::Web {
-            common::pack::extract(&dir.join(&file), &dir.join("web")).map_err(|e| {
-                let _ = std::fs::remove_dir_all(&dir);
-                other(format!("{file_name}: {e}"))
-            })?;
-        }
-        let stored = dir.join(&file);
-        let item = Item {
-            id: id.clone(),
-            name: if src.is_dir() { file_name.clone() } else { common::name_from_file(&file_name) },
-            kind,
-            size: std::fs::metadata(&stored)?.len(),
-            codec: if kind == Kind::Video { common::mp4_codec(&stored) } else { None },
-            fps: None,
-            file,
-            width: None,
-            height: None,
-            added: common::now(),
-            tags: vec![],
-            workshop: None,
-            preview: None,
-        };
-        write_meta(&dir, &item)?;
-        Ok(item)
+        made
     })();
     let _ = std::fs::remove_dir_all(&staging);
     result
@@ -207,8 +231,16 @@ mod tests {
         assert_eq!(f.name, "site");
 
         assert!(import(&root, &src.join("nope.exe"), &lib.items).is_err());
-        let reopened = Library::open(root);
+        // A zip without a page fails, and leaves no folder behind.
+        let before = std::fs::read_dir(&root).unwrap().count();
+        std::fs::write(src.join("empty.zip"), b"PK\x05\x06\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0").unwrap();
+        assert!(import(&root, &src.join("empty.zip"), &lib.items).is_err());
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), before);
+        // Staging left by an import that was cut short goes on the next start.
+        std::fs::create_dir_all(root.join(".import-1-2").join("x")).unwrap();
+        let reopened = Library::open(root.clone());
         assert_eq!(reopened.items.len(), 3);
+        assert!(!root.join(".import-1-2").exists());
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }

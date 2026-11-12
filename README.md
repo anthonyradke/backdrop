@@ -90,8 +90,8 @@ flowchart LR
 - Scenes are unpacked from `scene.pkg` and rendered in the player page. The renderer reads Wallpaper Engine's
   texture and model formats, translates its shaders to GLSL ES 3.00 and runs SceneScript in a Worker with no
   network access.
-- Workshop downloads go through the running Steam client using Wallpaper Engine's own Steam API library, then
-  are hard-linked into the library so they take no extra space on the same drive.
+- Workshop downloads go through the running Steam client using Wallpaper Engine's own Steam API library. A
+  downloaded video is hard-linked into the library, so it takes no extra space on the same drive.
 
 [docs/architecture.md](docs/architecture.md) covers each of these in detail.
 

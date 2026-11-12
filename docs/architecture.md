@@ -80,12 +80,13 @@ downloading. *Download* works the way Wallpaper Engine does (`steamapi.rs`): a s
 the running Steam client and reports progress until the download finishes, so no Steam window opens.
 Steam shows Wallpaper Engine as running while the helper is alive. If Steam isn't running, or Wallpaper
 Engine isn't installed, Backdrop opens the item in the Steam client to subscribe there instead. Once Steam
-has put the item in `steamapps/workshop/content/431960/`, Backdrop imports it, hard-linked when it's on
-the same drive so it takes no extra space. The *Downloaded in Steam* view lists earlier subscriptions to
+has put the item in `steamapps/workshop/content/431960/`, Backdrop imports it. A video is hard-linked
+when it's on the same drive, so it takes no extra space; scenes and HTML wallpapers are copied. The *Downloaded in Steam* view lists earlier subscriptions to
 add by hand.
 
 ## Item identity
 
-Each item is identified by the first 16 hex characters of its SHA-256 hash, so adding the same file
-twice is caught without extra bookkeeping. Items live in the library folder as `<id>/` with a
+Each item is identified by the first 16 hex characters of its SHA-256 hash (of the file, the
+`scene.pkg`, or every file of a loose scene), so adding the same file twice is caught without extra
+bookkeeping. Imports run one at a time, and a failed one leaves nothing behind. Items live in the library folder as `<id>/` with a
 `meta.json`, the media file and, for video and images, a `thumb.jpg` the library window renders.
