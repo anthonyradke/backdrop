@@ -298,6 +298,10 @@ const STRINGS = {
     "{ms} ms a frame at {fps} fps": "{ms} ms por fotograma a {fps} fps",
     "{fps} fps, busy {ms} ms a second": "{fps} fps, ocupado {ms} ms por segundo",
     "{p}% of frames dropped": "{p} % de fotogramas perdidos",
+    "Converting to H.264: {p}%": "Convirtiendo a H.264: {p} %",
+    "Windows can't play {codec} video.": "Windows no puede reproducir vídeo {codec}.",
+    "Convert to H.264": "Convertir a H.264",
+    "With FFmpeg installed (winget install ffmpeg), Backdrop converts it here.": "Con FFmpeg instalado (winget install ffmpeg), Backdrop lo convierte aquí.",
   },
 
   de: {
@@ -594,6 +598,10 @@ const STRINGS = {
     "{ms} ms a frame at {fps} fps": "{ms} ms pro Bild bei {fps} fps",
     "{fps} fps, busy {ms} ms a second": "{fps} fps, {ms} ms pro Sekunde ausgelastet",
     "{p}% of frames dropped": "{p} % der Bilder ausgelassen",
+    "Converting to H.264: {p}%": "Wird in H.264 umgewandelt: {p} %",
+    "Windows can't play {codec} video.": "Windows kann {codec}-Video nicht abspielen.",
+    "Convert to H.264": "In H.264 umwandeln",
+    "With FFmpeg installed (winget install ffmpeg), Backdrop converts it here.": "Mit installiertem FFmpeg (winget install ffmpeg) wandelt Backdrop es hier um.",
   },
 
   "zh-Hans": {
@@ -890,6 +898,10 @@ const STRINGS = {
     "{ms} ms a frame at {fps} fps": "每帧 {ms} 毫秒，{fps} fps",
     "{fps} fps, busy {ms} ms a second": "{fps} fps，每秒繁忙 {ms} 毫秒",
     "{p}% of frames dropped": "丢帧 {p}%",
+    "Converting to H.264: {p}%": "正在转换为 H.264：{p}%",
+    "Windows can't play {codec} video.": "Windows 无法播放 {codec} 视频。",
+    "Convert to H.264": "转换为 H.264",
+    "With FFmpeg installed (winget install ffmpeg), Backdrop converts it here.": "安装 FFmpeg（winget install ffmpeg）后，Backdrop 可以在这里转换。",
   },
 };
 

@@ -25,6 +25,7 @@ const COMMANDS: &[&str] = &[
     "set_schedule",
     "set_app_rules",
     "running_apps",
+    "convert_video",
     "next_wallpaper",
     "save_frame",
     "reset_settings",

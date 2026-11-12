@@ -127,14 +127,16 @@ releases and running the app locally.
 | `app/src-tauri/src/scene.rs`, `audio.rs` | Scene unpacking, and frequency bands from WASAPI loopback for visualizers |
 | `app/src-tauri/src/media.rs`, `loopback.rs` | The `media://` protocol and its HTTP fallback |
 | `app/src-tauri/src/workshop.rs`, `steamapi.rs` | Workshop browsing and downloads through Steam |
-| `app/src-tauri/src/rotation.rs`, `library.rs` | Rotation timer and the library on disk |
+| `app/src-tauri/src/rotation.rs`, `library.rs` | Rotation timer, schedule and the library on disk |
+| `app/src-tauri/src/transcode.rs` | Converting HEVC and ProRes video to H.264 with FFmpeg |
 | `app/ui` | Library window and player page: plain HTML, CSS and JavaScript with no build step |
 | `app/ui/scene/` | The WebGL2 scene renderer |
 | `scripts/` | Windows build and release scripts |
 
 ## Known limitations
 
-- WebView2 can't decode HEVC or ProRes. Use H.264, VP9 or AV1.
+- WebView2 can't decode HEVC or ProRes. With FFmpeg installed (`winget install ffmpeg`), the library converts
+  such a video to H.264; otherwise use H.264, VP9 or AV1.
 - Scenes run at 30 fps with simple point lighting. Application wallpapers aren't supported, because they would
   mean running downloaded programs.
 - The still frame covers the desktop wallpaper only; the lock screen keeps its own image.

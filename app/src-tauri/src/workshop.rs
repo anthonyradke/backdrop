@@ -586,24 +586,7 @@ fn update(core: &Core, old: &Item, local: &Local) -> Result<(), String> {
         }
         return Ok(());
     }
-    core.update_config(|c| {
-        for v in c.assignments.values_mut().chain(c.span.iter_mut()) {
-            if *v == old.id {
-                v.clone_from(&new.id);
-            }
-        }
-        for v in c.rotation.pool.iter_mut().chain(c.rotation.display_pools.values_mut().flatten()) {
-            if *v == old.id {
-                v.clone_from(&new.id);
-            }
-        }
-        for slot in c.schedule.iter_mut() {
-            if slot.item == old.id {
-                slot.item.clone_from(&new.id);
-            }
-        }
-    });
-    core.library.lock().unwrap().remove(&old.id);
+    core.replace_item(&old.id, &new.id);
     log(format!("workshop item {}: updated, {} replaces {}", old.workshop.as_deref().unwrap_or("?"), new.id, old.id));
     core.emit_state();
     Ok(())

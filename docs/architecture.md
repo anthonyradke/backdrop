@@ -77,6 +77,16 @@ HTML wallpapers and SceneScript come from other people, so neither can reach the
 - A content security policy (`tauri.conf.json`) limits both windows to the app's own files, `media://`
   and the loopback server. SceneScript Workers inherit it, which keeps scripts off the network.
 
+## Converting video (`transcode.rs`)
+
+WebView2 can't decode HEVC or ProRes. Windows has no ProRes decoder and decodes HEVC only with a
+separate Store extension, so Media Foundation isn't a dependable converter; FFmpeg is, when it's
+installed (found on the `PATH`, in winget's links folder or in `C:\ffmpeg\bin`). The library's sidebar
+then offers to convert such a video: FFmpeg writes H.264 with AAC audio to a staging file in the
+library, reporting progress on `-progress pipe:1`, and the result is imported in place of the original
+(`Core::replace_item`), keeping its name and its place on the displays and in rotation. Conversions
+still running when Backdrop quits are stopped.
+
 ## Rotation (`rotation.rs`)
 
 A background task checks the interval every 20 seconds. Picks come from the items marked for rotation, or

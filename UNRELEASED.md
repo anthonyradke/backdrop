@@ -57,3 +57,5 @@ this list into the release notes and empties it for the next batch.
 - With a different wallpaper on each display, each display can have its own rotation list
 - Settings can name programs that pause or mute the wallpapers while they run
 - The library shows what each wallpaper costs to show (light, medium or heavy), measured while it plays
+- HEVC and ProRes videos, which Windows can't play here, can be converted to H.264 from the library
+  when FFmpeg is installed

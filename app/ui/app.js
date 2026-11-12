@@ -365,6 +365,7 @@ const actions = {
     const now = new Date();
     return saveSchedule([...schedule(), { at: (now.getHours() + 1) % 24 * 60, item: sel, display: null }]);
   },
+  convert: (el) => call("convert_video", { id: el.dataset.id }),
   appRuleAdd: () => {
     const name = $("#app-new")?.value.trim().toLowerCase();
     if (!name) return;
@@ -684,6 +685,18 @@ function tileHtml(e, sel) {
   </button>`;
 }
 
+// A video WebView2 can't play: convert it here when FFmpeg is installed (transcode.rs), otherwise
+// say how.
+function convertHtml(e) {
+  const codec = codecName(e.codec);
+  const pct = S.state.converting?.[e.id];
+  if (pct != null) return `<div class="warn">${esc(tr("Converting to H.264: {p}%", { p: pct }))}<div class="bar"><i style="width:${pct}%"></i></div></div>`;
+  if (S.state.ffmpeg) return `<div class="warn">${esc(tr("Windows can't play {codec} video.", { codec }))}
+    <div><button class="btn sm press" data-act="convert" data-id="${e.id}">${tr("Convert to H.264")}</button></div></div>`;
+  return `<div class="warn">${tr("Windows can't play {codec} video. Convert it to H.264 (HandBrake works) and add that instead.", { codec })}
+    ${esc(tr("With FFmpeg installed (winget install ffmpeg), Backdrop converts it here."))}</div>`;
+}
+
 // The inspector on the right: the picked wallpaper large, what can be done with it, then its details.
 function sideHtml(e) {
   const live = liveOn(e.id);
@@ -717,7 +730,7 @@ function sideHtml(e) {
         ? `<span class="dot ${live[0].status}"></span>${esc(spanned() === e.id ? tr("Spanning all displays") : tr("Showing on {names}", { names: live.map((d) => d.name).join(", ") }))}`
         : `<span class="dot"></span>${tr("Not on a display")}`}</div>
       <input class="name-in" data-id="${e.id}" data-orig="${esc(e.name)}" value="${esc(e.name)}" spellcheck="false" title="${esc(tr("Rename"))}">
-      ${cantPlayHere(e) ? `<div class="warn">${tr("Windows can't play {codec} video. Convert it to H.264 (HandBrake works) and add that instead.", { codec: codecName(e.codec) })}</div>` : ""}
+      ${cantPlayHere(e) ? convertHtml(e) : ""}
       <div class="side-acts">
         <button class="btn pri lg block press" data-act="setAll" data-id="${e.id}">${ICON.play}${multi ? tr("Set on all displays") : tr("Set as wallpaper")}</button>
         ${multi ? `<div class="where">${displays.map((d) => `<button class="btn sm press ${d.item === e.id && !spanned() ? "on" : ""}" data-act="setOn" data-id="${e.id}" data-display="${esc(d.key)}" title="${esc(tr("Only {name}", { name: d.name }))}">${esc(d.name)}</button>`).join("")}

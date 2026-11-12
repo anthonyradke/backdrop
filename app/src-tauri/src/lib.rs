@@ -11,6 +11,7 @@ mod platform;
 mod rotation;
 mod scene;
 mod steamapi;
+mod transcode;
 mod update;
 mod workshop;
 
@@ -190,6 +191,10 @@ pub struct StateView {
     loopback: Option<String>,
     /// The language the UI should use (see `ui_language`).
     lang: &'static str,
+    /// FFmpeg is installed, so videos WebView2 can't play can be converted (transcode.rs).
+    ffmpeg: bool,
+    /// Item id -> percent done, for conversions running now.
+    converting: HashMap<String, u8>,
     workshop: WorkshopView,
 }
 
@@ -226,6 +231,25 @@ impl Core {
         self.emit_state();
     }
 
+    /// Puts `new` everywhere `old` was (displays, spanning, rotation lists, the schedule), then
+    /// deletes `old` from the library. Used when an item is replaced by a new copy of itself.
+    pub fn replace_item(&self, old: &str, new: &str) {
+        let swap = |v: &mut String| {
+            if v == old {
+                *v = new.to_string();
+            }
+        };
+        self.update_config(|c| {
+            c.assignments.values_mut().for_each(swap);
+            c.span.iter_mut().for_each(swap);
+            c.rotation.pool.iter_mut().for_each(swap);
+            c.rotation.display_pools.values_mut().flatten().for_each(swap);
+            c.schedule.iter_mut().for_each(|s| swap(&mut s.item));
+        });
+        self.library.lock().unwrap().remove(old);
+        self.emit_state();
+    }
+
     pub fn set_paused(&self, paused: bool) {
         self.manual_pause.store(paused, Ordering::Relaxed);
         if let Some(t) = self.tray.lock().unwrap().as_ref() {
@@ -247,6 +271,8 @@ impl Core {
         };
         StateView {
             lang: ui_language(&config.language),
+            ffmpeg: transcode::ffmpeg().is_some(),
+            converting: transcode::progress(),
             config,
             displays: self.displays.lock().unwrap().clone(),
             items,
@@ -438,6 +464,7 @@ pub fn run() {
             commands::set_schedule,
             commands::set_app_rules,
             commands::running_apps,
+            commands::convert_video,
             commands::next_wallpaper,
             commands::save_frame,
             commands::reset_settings,
@@ -462,6 +489,7 @@ pub fn run() {
             RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(),
             RunEvent::Exit => {
                 log("exiting");
+                transcode::stop_all();
                 platform::cleanup(app);
             }
             _ => {}

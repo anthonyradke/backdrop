@@ -376,6 +376,13 @@ pub async fn running_apps() -> Result<Vec<String>, String> {
     Ok(v)
 }
 
+/// Converts a video WebView2 can't play to H.264 with FFmpeg (transcode.rs). Returns once it has
+/// started; progress comes with the state.
+#[tauri::command]
+pub fn convert_video(app: AppHandle, id: String) -> Result<(), String> {
+    crate::transcode::start(&app, &id)
+}
+
 /// Replaces the schedule: the times of day the wallpaper changes, each to a chosen wallpaper.
 #[tauri::command]
 pub fn set_schedule(core: State<'_, Core>, slots: Vec<config::Slot>) -> Result<(), String> {

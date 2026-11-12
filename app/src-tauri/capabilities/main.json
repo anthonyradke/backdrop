@@ -51,6 +51,7 @@
     "allow-set-schedule",
     "allow-set-app-rules",
     "allow-running-apps",
-    "allow-player-stats"
+    "allow-player-stats",
+    "allow-convert-video"
   ]
 }

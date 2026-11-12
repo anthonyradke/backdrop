@@ -29,7 +29,7 @@ impl Library {
             for e in rd.flatten() {
                 // Staging folders left by an import that was cut short.
                 if e.file_name().to_string_lossy().starts_with(".import-") {
-                    let _ = std::fs::remove_dir_all(e.path());
+                    let _ = std::fs::remove_dir_all(e.path()).or_else(|_| std::fs::remove_file(e.path()));
                     continue;
                 }
                 let meta = e.path().join("meta.json");

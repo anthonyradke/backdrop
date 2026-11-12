@@ -363,6 +363,12 @@
           "markdownDescription": "Enables the clear_wallpaper command without any pre-configured scope."
         },
         {
+          "description": "Enables the convert_video command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-convert-video",
+          "markdownDescription": "Enables the convert_video command without any pre-configured scope."
+        },
+        {
           "description": "Enables the cursor_position command without any pre-configured scope.",
           "type": "string",
           "const": "allow-cursor-position",
@@ -601,6 +607,12 @@
           "type": "string",
           "const": "deny-clear-wallpaper",
           "markdownDescription": "Denies the clear_wallpaper command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the convert_video command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-convert-video",
+          "markdownDescription": "Denies the convert_video command without any pre-configured scope."
         },
         {
           "description": "Denies the cursor_position command without any pre-configured scope.",

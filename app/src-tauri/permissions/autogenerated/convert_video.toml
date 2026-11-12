@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-convert-video"
+description = "Enables the convert_video command without any pre-configured scope."
+commands.allow = ["convert_video"]
+
+[[permission]]
+identifier = "deny-convert-video"
+description = "Denies the convert_video command without any pre-configured scope."
+commands.deny = ["convert_video"]
