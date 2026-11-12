@@ -1,22 +1,33 @@
 # Tests every push to main on Windows, where the app runs: the Rust tests, the renderer's
 # JavaScript tests, and a check of the dependencies against the RustSec advisory database.
+# The release workflow runs this too, and only publishes when it passes on the tagged commit.
 name: check
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
+      # A tag run can't save a cache anything else can use, so only main saves.
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: actions/setup-node@v7
         with:
           node-version: 22
