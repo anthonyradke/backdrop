@@ -16,8 +16,10 @@ function url(src, base = BASE) {
   return base + src.split("/").map(encodeURIComponent).join("/");
 }
 
+// Each wallpaper is one `.layer` element. A new one fades in over the old once it can show
+// something, and then every other layer goes, so nothing is left playing underneath, however
+// quickly wallpapers change and whether or not the new one loads.
 function swap(p) {
-  const old = el;
   let next;
   if (p.kind === "video") {
     next = document.createElement("video");
@@ -26,7 +28,7 @@ function swap(p) {
     next.playsInline = true;
     next.preload = "auto";
     next.disablePictureInPicture = true;
-    next.addEventListener("loadeddata", reveal, { once: true });
+    next.addEventListener("loadeddata", () => reveal(next), { once: true });
     next.addEventListener("loadedmetadata", () => { if (cur && el === next) applyFit(cur); });
     let usedFallback = false;
     next.addEventListener("error", () => {
@@ -37,25 +39,29 @@ function swap(p) {
         report(`media:// couldn't play ${p.src} (${why}); switching to loopback`);
         next.dataset.base = p.fallback;
         next.src = url(p.src, p.fallback);
-        if (cur && !cur.paused) next.play().catch(() => {});
+        if (el === next && cur) show(cur);
         return;
       }
       report(`can't play ${p.src}: ${why}`);
+      // Black rather than the previous wallpaper, which would look like the change didn't happen.
+      reveal(next);
     });
     next.src = url(p.src);
   } else if (p.kind === "scene") {
     next = document.createElement("canvas");
     const scene = new WE.Scene(next, { base: url(p.src), stock: `${BASE}we-assets/`, log: report, screen: [p.rect[2], p.rect[3]] });
     next.scene = scene;
+    const canvas = next;
     scene.load().then(() => {
-      if (el !== next) return scene.destroy();
+      if (el !== canvas) return;
       show(cur);
       scene.start();
-      reveal();
+      reveal(canvas);
       for (const w of scene.warnings.slice(0, 40)) report(`${p.src}: ${w}`);
     }, (e) => {
       report(`scene ${p.src} failed: ${e.message || e}`);
-      showPreview(p, next);
+      scene.destroy();
+      if (el === canvas) showPreview(p, canvas);
     });
   } else if (p.kind === "web") {
     next = document.createElement("iframe");
@@ -63,34 +69,44 @@ function swap(p) {
     // Pages from media:// count as the app itself and could call its commands, so a wallpaper runs
     // on the loopback server's origin (see loopback.rs). Without it, it gets an opaque origin.
     next.setAttribute("sandbox", p.web ? "allow-scripts allow-same-origin allow-forms allow-pointer-lock" : "allow-scripts");
-    next.addEventListener("load", () => { reveal(); if (cur) show(cur); }, { once: true });
+    const frame = next;
+    next.addEventListener("load", () => { reveal(frame); if (cur && el === frame) show(cur); }, { once: true });
     next.src = url(p.src, p.web || BASE);
   } else {
     next = document.createElement("img");
     next.src = url(p.src);
-    next.decode().then(() => { if (cur && el === next) applyFit(cur); reveal(); }, reveal);
+    const img = next;
+    next.decode().then(() => { if (cur && el === img) applyFit(cur); reveal(img); }, () => reveal(img));
   }
   next.className = "layer";
   document.body.appendChild(next);
   el = next;
-
-  function reveal() {
-    requestAnimationFrame(() => {
-      next.classList.add("on");
-      if (old) setTimeout(() => dispose(old), 700);
-    });
-  }
 }
 
-// A scene that can't run still has a picture of itself.
+function reveal(node) {
+  requestAnimationFrame(() => {
+    // Superseded before it could show: the newer layer will clear it.
+    if (node !== el) return;
+    node.classList.add("on");
+    setTimeout(() => {
+      for (const n of document.querySelectorAll(".layer")) if (n !== node && n !== el) dispose(n);
+    }, 700);
+  });
+}
+
+// A scene that can't run still has a picture of itself, which takes the canvas's place.
 async function showPreview(p, canvas) {
   const project = await fetch(url(`${p.src}project.json`)).then((r) => r.json()).catch(() => null);
-  if (el !== canvas || !project?.preview) return;
+  if (el !== canvas) return;
+  if (!project?.preview) return reveal(canvas);
   const img = document.createElement("img");
-  img.src = url(p.src + project.preview);
-  img.className = "layer on";
+  img.className = "layer";
   img.style.objectFit = "cover";
+  img.src = url(p.src + project.preview);
   document.body.appendChild(img);
+  el = img;
+  canvas.remove();
+  img.decode().then(() => reveal(img), () => reveal(img));
 }
 
 function dispose(node) {
@@ -118,26 +134,36 @@ function applyFit(p) {
 // matches before the player starts. A separate element does the grab so the visible one is never
 // switched to CORS mode.
 const captured = new Set();
+// Grabs that failed, by item, so a file that never decodes isn't tried on every update.
+const captureFailures = new Map();
 function capture(p) {
   const id = p.capture;
-  if (!id || captured.has(id)) return;
+  if (!id || captured.has(id) || (captureFailures.get(id) || 0) >= 3) return;
   captured.add(id);
+  // The element showing this wallpaper now; the timers below check it's still the one on screen.
+  const node = el;
+  const failed = (e) => {
+    captured.delete(id);
+    captureFailures.set(id, (captureFailures.get(id) || 0) + 1);
+    report(`no still frame for ${p.src}: ${e}`);
+  };
   if (p.kind === "scene") {
     // The frame comes from the renderer, once the scene has had time to settle.
     setTimeout(() => {
-      const scene = el.scene;
-      if (!scene?.running) { captured.delete(id); return; }
-      invoke("save_frame", { id, data: scene.frameDataUrl() }).catch((e) => report(`no still frame for ${p.src}: ${e}`));
+      const scene = node.scene;
+      if (el !== node || !scene?.running) { captured.delete(id); return; }
+      invoke("save_frame", { id, data: scene.frameDataUrl() }).catch(failed);
     }, 4000);
     return;
   }
   // Waits a moment so the visible player has settled on media:// or the loopback fallback.
   setTimeout(() => {
-    const base = el.dataset.base || BASE;
+    if (el !== node) { captured.delete(id); return; }
+    const base = node.dataset.base || BASE;
     grab(url(p.src, base), p.kind)
       .catch((e) => (p.fallback && base !== p.fallback ? grab(url(p.src, p.fallback), p.kind) : Promise.reject(e)))
       .then((data) => invoke("save_frame", { id, data }))
-      .catch((e) => report(`no still frame for ${p.src}: ${e}`));
+      .catch(failed);
   }, 2500);
 }
 
@@ -190,8 +216,17 @@ function show(p) {
     el.muted = p.muted;
     el.volume = p.volume;
     el.defaultPlaybackRate = el.playbackRate = p.speed || 1;
-    if (p.paused) el.pause();
-    else el.play().catch(() => { el.muted = true; el.play().catch((e) => report(`play() refused: ${e}`)); });
+    const v = el;
+    if (p.paused) v.pause();
+    else {
+      v.play().catch((e) => {
+        // Only an autoplay refusal is worth retrying muted. pause() or a new src while play() is
+        // pending rejects it too, and that must not start the video again.
+        if (e?.name !== "NotAllowedError" || v !== el || cur?.paused) return;
+        v.muted = true;
+        v.play().catch((e) => report(`play() refused: ${e}`));
+      });
+    }
   } else if (el.scene) {
     el.scene.speed = p.speed || 1;
     el.scene.setAudio?.(p.muted, p.volume);
