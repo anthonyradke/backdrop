@@ -74,6 +74,8 @@ pub struct Config {
     pub pause_locked: bool,
     /// UI language code (`en`, `es`, `de`, `zh-Hans`); empty = follow the system.
     pub language: String,
+    /// Import new versions of workshop wallpapers when Steam downloads an update.
+    pub workshop_updates: bool,
     pub rotation: Rotation,
 }
 
@@ -94,6 +96,7 @@ impl Default for Config {
             pause_low_power: true,
             pause_locked: true,
             language: String::new(),
+            workshop_updates: true,
             rotation: Rotation::default(),
         }
     }

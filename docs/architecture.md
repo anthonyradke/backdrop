@@ -95,6 +95,11 @@ has put the item in `steamapps/workshop/content/431960/`, Backdrop imports it. A
 when it's on the same drive, so it takes no extra space; scenes and HTML wallpapers are copied. The *Downloaded in Steam* view lists earlier subscriptions to
 add by hand.
 
+Each workshop item remembers the newest modification time of its download. Every ten minutes the sync
+loop compares it with the download, and when Steam has updated it, imports the new version in its
+place: the new item keeps the name, properties, display assignments and rotation slot, and the old
+one is deleted. Settings has a switch for this.
+
 ## Item identity
 
 Each item is identified by the first 16 hex characters of its SHA-256 hash (of the file, the

@@ -227,6 +227,7 @@ pub struct SettingsPatch {
     pause_low_power: Option<bool>,
     pause_locked: Option<bool>,
     language: Option<String>,
+    workshop_updates: Option<bool>,
     rotation_minutes: Option<u32>,
     rotation_order: Option<Order>,
     rotation_per_display: Option<bool>,
@@ -262,6 +263,9 @@ pub fn update_settings(app: AppHandle, core: State<'_, Core>, patch: SettingsPat
         }
         if let Some(v) = patch.language {
             c.language = v;
+        }
+        if let Some(v) = patch.workshop_updates {
+            c.workshop_updates = v;
         }
         if let Some(v) = patch.rotation_minutes {
             c.rotation.minutes = v;

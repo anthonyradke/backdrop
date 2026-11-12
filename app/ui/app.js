@@ -380,6 +380,7 @@ const actions = {
   rotOnStart: (el) => setting({ rotationOnStart: on(el) }),
   rotOnWake: (el) => setting({ rotationOnWake: on(el) }),
   language: (el) => setting({ language: el.dataset.v }),
+  workshopUpdates: (el) => setting({ workshopUpdates: on(el) }),
   autostart: (el) => call("set_autostart", { on: on(el) }),
   openDir: () => call("open_library_dir"),
   tour: () => startTour(),
@@ -1159,6 +1160,7 @@ function renderSettings() {
       row(tr("Start at login"), tr("Starts in the {tray} without opening this window.", { tray: trayName() }), offOn("autostart", S.state.autostart)),
       row(tr("Library folder"), `<span class="mono">${esc(S.state.libraryDir)}</span>`, `<button class="btn sm press" data-act="openDir">${tr("Open")}</button>`),
       row(tr("Quick tour"), tr("A 20-second look around the app."), `<button class="btn sm press" data-act="tour">${tr("Show")}</button>`),
+      row(tr("Update Workshop wallpapers"), tr("When Steam downloads a new version of a Workshop wallpaper, it replaces the one in your library. Its name, settings and place stay."), offOn("workshopUpdates", c.workshopUpdates)),
       hidden ? row(tr("Hidden in the Workshop"), tr("{n} hidden (single wallpapers and creators).", { n: hidden }), `<button class="btn sm press" data-act="wsUnhide">${tr("Show again")}</button>`) : "",
       row(tr("Reset settings"), tr("Keeps your library."), `<button class="btn sm danger press" data-act="reset">${tr("Reset")}</button>`),
     ].join(""))}

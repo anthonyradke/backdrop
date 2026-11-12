@@ -51,6 +51,10 @@ pub struct Item {
     /// `general.properties`), by property name. Unset ones keep the wallpaper's defaults.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub properties: BTreeMap<String, serde_json::Value>,
+    /// For workshop items: when Steam last wrote the download this came from (Unix seconds, the
+    /// newest file in it). A newer download is an update to import.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_mtime: Option<i64>,
 }
 
 pub const VIDEO_EXTS: &[&str] = &["mp4", "m4v", "mov", "webm", "mkv"];
@@ -154,6 +158,27 @@ pub fn hash_dir(dir: &Path) -> std::io::Result<String> {
         h.update([0]);
     }
     Ok(id_from_digest(&h.finalize()))
+}
+
+/// The newest modification time (Unix seconds) of a file, or of any file in a folder.
+pub fn newest_mtime(path: &Path) -> Option<i64> {
+    let secs = |m: std::fs::Metadata| m.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs() as i64);
+    if path.is_file() {
+        return std::fs::metadata(path).ok().and_then(secs);
+    }
+    let mut newest = None;
+    let mut stack = vec![path.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).ok()?.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if let Some(t) = e.metadata().ok().and_then(secs) {
+                newest = newest.max(Some(t));
+            }
+        }
+    }
+    newest
 }
 
 /// A display name from a file name: "my_cool-loop.mp4" -> "my cool loop".
@@ -388,6 +413,20 @@ mod tests {
         write_atomic(&p, b"{not json").unwrap();
         assert_eq!(load_json::<S>(&p), S::default());
         assert_eq!(load_json::<S>(&dir.join("missing.json")), S::default());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn newest_file_time() {
+        let dir = std::env::temp_dir().join(format!("backdrop-mtime-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        let old = std::fs::File::create(dir.join("a")).unwrap();
+        old.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1000)).unwrap();
+        let new = std::fs::File::create(dir.join("sub").join("b")).unwrap();
+        new.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(5000)).unwrap();
+        assert_eq!(newest_mtime(&dir), Some(5000));
+        assert_eq!(newest_mtime(&dir.join("a")), Some(1000));
+        assert_eq!(newest_mtime(&dir.join("missing")), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

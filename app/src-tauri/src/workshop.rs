@@ -498,6 +498,7 @@ pub fn import(core: &Core, id: &str) -> Result<Item, String> {
             item.name = local.title.trim().to_string();
         }
         item.workshop = Some(id.to_string());
+        item.source_mtime = common::newest_mtime(&local.src);
         if item.kind == Kind::Web {
             // HTML wallpapers get no client thumbnail, so use Wallpaper Engine's preview if it's a JPEG.
             if let Some(prev) = std::fs::read_dir(&local.src).ok().and_then(|rd| {
@@ -533,6 +534,74 @@ pub fn import(core: &Core, id: &str) -> Result<Item, String> {
     core.emit_state();
     log(format!("imported workshop item {id} as {}", item.id));
     Ok(item)
+}
+
+/// Workshop wallpapers Steam has updated since they were imported: the library item, and the
+/// download it should be replaced with.
+fn updated(core: &Core) -> Vec<(Item, Local)> {
+    let items: Vec<Item> = core.library.lock().unwrap().items.values().filter(|i| i.workshop.is_some()).cloned().collect();
+    let mut out = vec![];
+    for item in items {
+        let Some(local) = item.workshop.as_deref().and_then(local_item) else { continue };
+        let Some(mtime) = common::newest_mtime(&local.src) else { continue };
+        match item.source_mtime {
+            // Imported before these times were kept: this is the baseline.
+            None => {
+                let mut lib = core.library.lock().unwrap();
+                if let Some(known) = lib.items.get_mut(&item.id) {
+                    known.source_mtime = Some(mtime);
+                    let known = known.clone();
+                    let _ = lib.save_meta(&known);
+                }
+            }
+            Some(had) if mtime > had => out.push((item, local)),
+            Some(_) => {}
+        }
+    }
+    out
+}
+
+/// Replaces a workshop wallpaper with Steam's newer download. The new copy keeps the old one's name,
+/// properties and place (displays, spanning, rotation), and the old one goes.
+fn update(core: &Core, old: &Item, local: &Local) -> Result<(), String> {
+    let mtime = common::newest_mtime(&local.src);
+    let new = library::import_into(core, &local.src, true, |item, dir| {
+        item.name = old.name.clone();
+        item.properties = old.properties.clone();
+        item.tags = old.tags.clone();
+        item.workshop = old.workshop.clone();
+        item.source_mtime = mtime;
+        if let Err(e) = library::write_meta(dir, item) {
+            log(format!("workshop update {}: couldn't save its details: {e}", item.id));
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    if new.id == old.id {
+        // Same content (Steam touched the files): just remember the new time.
+        let mut lib = core.library.lock().unwrap();
+        if let Some(known) = lib.items.get_mut(&old.id) {
+            known.source_mtime = mtime;
+            let known = known.clone();
+            let _ = lib.save_meta(&known);
+        }
+        return Ok(());
+    }
+    core.update_config(|c| {
+        for v in c.assignments.values_mut().chain(c.span.iter_mut()) {
+            if *v == old.id {
+                v.clone_from(&new.id);
+            }
+        }
+        for v in c.rotation.pool.iter_mut() {
+            if *v == old.id {
+                v.clone_from(&new.id);
+            }
+        }
+    });
+    core.library.lock().unwrap().remove(&old.id);
+    log(format!("workshop item {}: updated, {} replaces {}", old.workshop.as_deref().unwrap_or("?"), new.id, old.id));
+    core.emit_state();
+    Ok(())
 }
 
 /// What Backdrop remembers about the workshop, in `workshop.json` next to the config (so resetting
@@ -649,11 +718,23 @@ impl Store {
 /// downloads into `workshop/downloads` and only moves the folder into `content` when it's done.
 /// How long a subscribed item may take to arrive before Backdrop stops waiting for it.
 const PENDING_MAX_SECS: i64 = 24 * 3600;
+/// Sync loop ticks (5 s each) between checks for updated workshop wallpapers.
+const UPDATE_EVERY: u32 = 120;
 
 pub fn spawn(app: AppHandle) {
+    let mut ticks = 0u32;
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_secs(5));
         let core = app.state::<Core>();
+        ticks += 1;
+        // The first check comes a minute after starting, then every ten minutes.
+        if ticks % UPDATE_EVERY == 12 && core.config.lock().unwrap().workshop_updates {
+            for (item, local) in updated(&core) {
+                if let Err(e) = update(&core, &item, &local) {
+                    log(format!("workshop update for {}: {e}", item.id));
+                }
+            }
+        }
         let expired = core.workshop.lock().unwrap().expire_pending(PENDING_MAX_SECS);
         if !expired.is_empty() {
             log(format!("workshop: stopped waiting for {expired:?}; Steam never delivered them"));

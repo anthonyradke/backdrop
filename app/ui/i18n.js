@@ -273,6 +273,8 @@ const STRINGS = {
     "Search the Workshop": "Buscar en el Workshop",
     "Couldn't load more: {e}": "No se pudo cargar más: {e}",
     "Properties": "Propiedades",
+    "Update Workshop wallpapers": "Actualizar fondos del Workshop",
+    "When Steam downloads a new version of a Workshop wallpaper, it replaces the one in your library. Its name, settings and place stay.": "Cuando Steam descarga una versión nueva de un fondo del Workshop, sustituye a la de tu biblioteca. Conserva su nombre, ajustes y lugar.",
   },
 
   de: {
@@ -544,6 +546,8 @@ const STRINGS = {
     "Search the Workshop": "Im Workshop suchen",
     "Couldn't load more: {e}": "Weitere konnten nicht geladen werden: {e}",
     "Properties": "Eigenschaften",
+    "Update Workshop wallpapers": "Workshop-Hintergründe aktualisieren",
+    "When Steam downloads a new version of a Workshop wallpaper, it replaces the one in your library. Its name, settings and place stay.": "Lädt Steam eine neue Version eines Workshop-Hintergrunds herunter, ersetzt sie die in deiner Bibliothek. Name, Einstellungen und Platz bleiben erhalten.",
   },
 
   "zh-Hans": {
@@ -815,6 +819,8 @@ const STRINGS = {
     "Search the Workshop": "搜索创意工坊",
     "Couldn't load more: {e}": "无法加载更多：{e}",
     "Properties": "属性",
+    "Update Workshop wallpapers": "更新创意工坊壁纸",
+    "When Steam downloads a new version of a Workshop wallpaper, it replaces the one in your library. Its name, settings and place stay.": "Steam 下载创意工坊壁纸的新版本后，会替换资源库中的旧版本。名称、设置和位置保持不变。",
   },
 };
 

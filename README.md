@@ -46,7 +46,8 @@ Library
   play.
 - Multi-select for deleting wallpapers or changing their rotation in bulk.
 - A Workshop tab that browses the Wallpaper Engine Steam Workshop by genre and adds items to the library. Steam
-  does the downloading. Anime is filtered out of browsing, and single items or creators can be hidden.
+  does the downloading, and updates it downloads later replace the library's copy. Anime is filtered out of
+  browsing, and single items or creators can be hidden.
 
 App
 - Runs from the system tray with the window closed, and can start at login.

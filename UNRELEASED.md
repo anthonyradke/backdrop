@@ -51,3 +51,5 @@ this list into the release notes and empties it for the next batch.
   in the library's sidebar, and changes apply right away
 - HTML wallpapers made for Wallpaper Engine get its web API: their properties, audio levels for
   visualizers, and the track that's playing
+- Workshop wallpapers stay up to date: when Steam downloads a new version, it replaces the one in the
+  library, keeping its name, settings and place (switch in Settings)
