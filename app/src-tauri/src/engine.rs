@@ -97,6 +97,10 @@ struct Engine {
     battery_checked: Option<Instant>,
     /// Wall-clock time of the last tick. A big gap means the computer was asleep.
     last_tick: std::time::SystemTime,
+    /// A wake not acted on yet (the displays can still be missing on the first ticks after one).
+    woke: bool,
+    /// Display key -> the native wallpaper that failed to apply, and when; retried after a while.
+    native_failed: HashMap<String, ((String, Fit), Instant)>,
     /// Display key -> when creating its window last failed (retried after a pause).
     failed: HashMap<String, Instant>,
     /// Players rebuilt after Explorer destroyed them, for unique window labels.
@@ -117,14 +121,12 @@ pub fn spawn(app: AppHandle) -> mpsc::Sender<()> {
                 low_power: false,
                 battery_checked: None,
                 last_tick: std::time::SystemTime::now(),
+                woke: false,
+                native_failed: HashMap::new(),
                 failed: HashMap::new(),
                 respawns: 0,
             };
-            loop {
-                match rx.recv_timeout(Duration::from_secs(1)) {
-                    Ok(()) | Err(mpsc::RecvTimeoutError::Timeout) => {}
-                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                }
+            while let Ok(()) | Err(mpsc::RecvTimeoutError::Timeout) = rx.recv_timeout(Duration::from_secs(1)) {
                 while rx.try_recv().is_ok() {}
                 e.tick();
             }
@@ -156,6 +158,9 @@ pub fn native_fit(fit: Fit, size: (Option<u32>, Option<u32>), d: &Display) -> Fi
 
 /// The full-size frame of a moving wallpaper that stands in as the system wallpaper.
 pub const FRAME: &str = "frame.jpg";
+
+/// How long a native wallpaper that failed to apply waits before the next try.
+const NATIVE_RETRY: Duration = Duration::from_secs(30);
 
 /// The key a spanned wallpaper uses in place of a display's.
 pub const SPAN_KEY: &str = "all-displays";
@@ -271,6 +276,10 @@ fn create_player(app: &AppHandle, label: &str, d: &Display) -> tauri::Result<Web
 
 impl Engine {
     fn tick(&mut self) {
+        // Measured before anything else, so a tick that returns early still counts as one.
+        let now = std::time::SystemTime::now();
+        self.woke |= now.duration_since(self.last_tick).is_ok_and(|d| d > Duration::from_secs(30));
+        self.last_tick = now;
         let displays = read_displays(&self.app);
         // Monitors can vanish for a moment around sleep and resolution changes. Don't tear down.
         if displays.is_empty() {
@@ -288,9 +297,7 @@ impl Engine {
             )
         };
 
-        let now = std::time::SystemTime::now();
-        let slept = now.duration_since(self.last_tick).is_ok_and(|d| d > Duration::from_secs(30));
-        self.last_tick = now;
+        let slept = std::mem::take(&mut self.woke);
         if slept {
             log("woke from sleep");
             if cfg.rotation.on_wake {
@@ -309,6 +316,16 @@ impl Engine {
             if cfg.pause_focused && !self.slots.is_empty() { platform::focused(&self.app, &displays) } else { HashSet::new() };
         let spanning = cfg.span.is_some();
         let targets = if spanning { vec![span_rect(&displays)] } else { displays.clone() };
+        // Windows has one wallpaper position for every monitor, so "fit height" is decided once,
+        // by the main display's picture, and every display uses that.
+        let shared_fit = {
+            let primary = targets.iter().find(|d| d.primary).or(targets.first());
+            let item = primary.and_then(|d| cfg.span.as_ref().or(cfg.assignments.get(&d.key))).and_then(|id| items.get(id));
+            match (primary, item) {
+                (Some(d), Some(item)) => native_fit(cfg.fit, (item.width, item.height), d),
+                _ => native_fit(cfg.fit, (None, None), &span_rect(&displays)),
+            }
+        };
 
         let mut views = Vec::with_capacity(targets.len());
         let mut wanted: HashSet<String> = HashSet::new();
@@ -329,22 +346,25 @@ impl Engine {
                 };
                 if let Some((native_id, path)) = native_src {
                     native_now.insert(d.key.clone());
-                    let fit = native_fit(cfg.fit, (item.width, item.height), d);
-                    let want = (native_id, fit);
-                    if self.native.get(&d.key) != Some(&want) {
+                    let want = (native_id, shared_fit);
+                    // A failure (Explorer not up yet at login, say) is tried again after a while,
+                    // not every second.
+                    let waiting = self.native_failed.get(&d.key).is_some_and(|(w, t)| *w == want && t.elapsed() < NATIVE_RETRY);
+                    if self.native.get(&d.key) != Some(&want) && !waiting {
                         let set = if spanning {
                             platform::set_span_image(&self.app, &path)
                         } else {
-                            platform::set_image(&self.app, d, &path, fit)
+                            platform::set_image(&self.app, d, &path, shared_fit)
                         };
                         match set {
                             Ok(()) => {
+                                self.native_failed.remove(&d.key);
                                 self.native.insert(d.key.clone(), want);
                             }
                             Err(e) => {
                                 log(format!("set image on {}: {e}", d.name));
-                                // Remember it anyway so we don't retry every second.
-                                self.native.insert(d.key.clone(), want);
+                                self.native.remove(&d.key);
+                                self.native_failed.insert(d.key.clone(), (want, Instant::now()));
                             }
                         }
                     }
@@ -397,6 +417,7 @@ impl Engine {
             views.push(DisplayView { display: d.clone(), item: assigned, status, reason });
         }
         self.native.retain(|k, _| native_now.contains(k));
+        self.native_failed.retain(|k, _| native_now.contains(k));
         let views = if spanning { span_views(views, &displays) } else { views };
 
         let stale: Vec<String> = self.slots.keys().filter(|k| !wanted.contains(*k)).cloned().collect();

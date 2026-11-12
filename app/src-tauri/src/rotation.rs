@@ -20,9 +20,19 @@ pub enum Why {
 /// Checks every 20 seconds whether the rotation interval has passed.
 pub fn spawn(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
+        let mut last = std::time::SystemTime::now();
         loop {
             tokio::time::sleep(Duration::from_secs(20)).await;
             let core = app.state::<Core>();
+            // Just back from sleep: when a wake picks a wallpaper anyway, the timer leaves it to
+            // that, or the two would change it twice in a row.
+            let now = std::time::SystemTime::now();
+            let slept = now.duration_since(last).is_ok_and(|d| d > Duration::from_secs(60));
+            last = now;
+            if slept && core.config.lock().unwrap().rotation.on_wake {
+                *core.rotated_at.lock().unwrap() = Instant::now();
+                continue;
+            }
             let minutes = core.config.lock().unwrap().rotation.minutes;
             let due = minutes > 0
                 && core.rotated_at.lock().unwrap().elapsed() >= Duration::from_secs(minutes as u64 * 60);
@@ -97,10 +107,11 @@ fn candidates(core: &Core, pool: &[String]) -> Vec<String> {
     items.into_iter().map(|i| i.id.clone()).collect()
 }
 
-/// A random number below `n` (n > 0), from the OS-seeded hasher keys. Plenty for picking wallpapers.
+/// A random number below `n` (n > 0). Each `RandomState` gets new keys from the OS's random source,
+/// so hashing anything gives a fresh number. Plenty for picking wallpapers.
 fn rand_below(n: usize) -> usize {
     let mut h = std::collections::hash_map::RandomState::new().build_hasher();
-    h.write_u128(Instant::now().elapsed().as_nanos() ^ common::now() as u128);
+    h.write_u64(common::now() as u64);
     (h.finish() % n as u64) as usize
 }
 

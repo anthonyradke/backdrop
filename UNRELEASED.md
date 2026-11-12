@@ -40,3 +40,7 @@ this list into the release notes and empties it for the next batch.
   and removing layers no longer leak memory
 - A Workshop download that stalls, or a helper that doesn't answer, no longer keeps Steam showing
   Wallpaper Engine as running; pressing Download twice doesn't start a second download
+- Unplugging a dock no longer counts as waking from sleep, waking no longer changes the wallpaper twice,
+  and a still image Windows refused at login is applied once it can be
+- "Fit height" applies one position to every display, as Windows requires, instead of whichever
+  display was set last
