@@ -391,33 +391,40 @@ async function startScripts(scene) {
       value: s.key === "text" ? String(s.out[0]) : s.out.length === 1 ? (typeof s.out[0] === "boolean" ? s.out[0] : s.out[0]) : s.out.slice(),
     })),
   });
+  // The Worker runs third-party code, so what it sends back is checked: ids are plain integers and
+  // writes only reach the layer fields scripts are meant to change.
+  const isId = (id) => Number.isInteger(id) && id >= 0;
+  const rows = (v) => (Array.isArray(v) ? v.filter(Array.isArray) : []);
   worker.onmessage = (e) => {
     const m = e.data;
-    if (m.type === "warn") { scene.warnOnce(m.message); return; }
+    if (!m || typeof m !== "object") return;
+    if (m.type === "warn") { scene.warnOnce(String(m.message).slice(0, 300)); return; }
     if (m.type !== "frame") return;
     scene.scriptBusy = false;
-    for (const [id, v] of m.results) {
+    for (const [id, v] of rows(m.results)) {
+      if (!isId(id) || !scripts[id]) continue;
       const out = scripts[id].out;
       if (Array.isArray(v)) for (let i = 0; i < v.length; i++) out[i] = v[i];
       else out[0] = v;
     }
-    for (const [id, key, v] of m.writes) {
-      const l = scene.byId.get(id);
+    for (const [id, key, v] of rows(m.writes)) {
+      const l = isId(id) && WRITABLE.has(key) && Array.isArray(v) && scene.byId.get(id);
       if (!l) continue;
       const field = key === "text" ? l.textValue : l[key];
       if (!Array.isArray(field)) continue;
       for (let i = 0; i < v.length; i++) if (typeof v[i] !== "number" || Number.isFinite(v[i])) field[i] = v[i];
     }
-    for (const [op, id, a, b] of m.ops) {
+    for (const [op, id, a, b] of rows(m.ops)) {
+      if (!isId(id)) continue;
       if (op === "frame") { const l = scene.byId.get(id); if (l) l.heldFrame = a; continue; }
-      if (op === "create") { scene.addLayer({ ...a, id }); continue; }
+      if (op === "create") { if (a && typeof a === "object") scene.addLayer({ ...a, id }); continue; }
       if (op === "destroy") { scene.removeLayer(id); continue; }
       if (op === "effect") {
         const fx = scene.byId.get(id)?.effects?.find((e) => e.name === a);
         if (fx) fx.visible[0] = b;
         continue;
       }
-      const t = scene.timelines[id];
+      const t = Object.hasOwn(scene.timelines, id) ? scene.timelines[id] : null;
       if (!t) continue;
       if (op === "play") t.playing = true;
       else if (op === "pause") t.playing = false;
@@ -426,6 +433,9 @@ async function startScripts(scene) {
     }
   };
 }
+
+// Layer fields the Worker's layer proxies write (layerProxy in scriptRuntime).
+const WRITABLE = new Set(["origin", "scale", "angles", "color", "alpha", "brightness", "visible", "text", "pointsize"]);
 
 WE.startScripts = (scene) => (scene.scripts?.length ? startScripts(scene) : Promise.resolve());
 
