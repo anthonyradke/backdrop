@@ -98,7 +98,8 @@ document.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape") endTour();
   else if (ev.key === "ArrowRight") tourGo(tourStep + 1);
   else if (ev.key === "ArrowLeft") tourGo(tourStep - 1);
-  else if (ev.key === "Enter" || ev.key === " " || ev.key === "Tab") return;
+  else if (ev.key === "Tab") return trapTab(ev, $("#tour .tour-card"));
+  else if (ev.key === "Enter" || ev.key === " ") return;
   ev.stopImmediatePropagation();
   ev.preventDefault();
 }, true);

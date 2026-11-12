@@ -310,11 +310,11 @@ const actions = {
     render();
   },
   wsUnhide: () => call("workshop_unhide_all", {}, tr("Hidden wallpapers will show again")),
-  wsShow: (el) => { S.ws.open = false; S.tab = "library"; S.filter = "all"; S.query = ""; S.sel = el.dataset.item; S.preview = null; render(); },
-  filter: (el) => { S.filter = el.dataset.v; render(); },
+  wsShow: (el) => { S.ws.open = false; S.tab = "library"; S.filter = "all"; S.query = ""; S.sel = el.dataset.item; S.preview = null; leavePicking(); render(); },
+  filter: (el) => { S.filter = el.dataset.v; prunePicks(); render(); },
   showItem: (el) => {
     S.tab = el.dataset.item ? "library" : "displays";
-    if (el.dataset.item) { S.sel = el.dataset.item; S.filter = "all"; S.query = ""; S.picking = false; S.preview = null; }
+    if (el.dataset.item) { S.sel = el.dataset.item; S.filter = "all"; S.query = ""; S.preview = null; leavePicking(); }
     render();
   },
   pick: async (el) => importResult(await call("pick_files", { folder: el.dataset.folder === "1" })),
@@ -325,7 +325,7 @@ const actions = {
     else { S.sel = id; S.preview = null; S.anchor = id; }
     render();
   },
-  pickMode: () => { S.picking = !S.picking; S.picked.clear(); render(); },
+  pickMode: () => { if (S.picking) leavePicking(); else S.picking = true; render(); },
   pickAll: () => { for (const e of shownEntries()) S.picked.add(e.id); S.picking = true; render(); },
   pickNone: () => { S.picked.clear(); render(); },
   pickRotation: (el) => call("set_in_rotation", { ids: pickedIds(), on: el.dataset.on === "1" },
@@ -334,8 +334,7 @@ const actions = {
     const ids = pickedIds();
     if (!ids.length || !confirm(tr("Delete {n} wallpapers from your library? Their files are deleted from the library folder.", { n: ids.length }))) return;
     await call("delete_items", { ids }, tr("Deleted {n} wallpapers", { n: ids.length }));
-    S.picked.clear();
-    S.picking = false;
+    leavePicking();
     if (ids.includes(S.sel)) S.sel = null;
     render();
   },
@@ -403,7 +402,9 @@ document.addEventListener("change", (ev) => {
 });
 
 document.addEventListener("input", (ev) => {
-  if (ev.target.id === "search") { S.query = ev.target.value; render(); }
+  if (ev.target.id === "search") { S.query = ev.target.value; prunePicks(); render(); }
+  // Kept as typed until Enter, so a re-render (a download's progress, say) doesn't wipe it.
+  if (ev.target.id === "ws-search") S.ws.draft = ev.target.value;
   if (ev.target.id === "volume") {
     clearTimeout(S.volTimer);
     const v = Number(ev.target.value) / 100;
@@ -412,8 +413,11 @@ document.addEventListener("input", (ev) => {
 });
 
 document.addEventListener("keydown", (ev) => {
-  if (ev.target.id === "ws-search" && ev.key === "Enter") {
+  if (S.tab === "workshop" && S.ws.open && ev.key === "Tab") {
+    trapTab(ev, $("#page .dialog"));
+  } else if (ev.target.id === "ws-search" && ev.key === "Enter") {
     S.ws.search = ev.target.value;
+    S.ws.draft = null;
     wsLoad();
   } else if (ev.target.classList?.contains("name-in")) {
     if (ev.key === "Enter") ev.target.blur();
@@ -421,8 +425,11 @@ document.addEventListener("keydown", (ev) => {
   } else if (ev.key === "Escape" && S.tab === "workshop" && S.ws.open) {
     S.ws.open = false;
     render();
+  } else if (ev.target.id === "search" && ev.key === "Escape" && S.picking) {
+    leavePicking();
+    render();
   } else if (S.tab === "library" && !ev.target.closest?.("input")) {
-    if (ev.key === "Escape" && S.picking) { S.picking = false; S.picked.clear(); render(); }
+    if (ev.key === "Escape" && S.picking) { leavePicking(); render(); }
     else if (ev.key === "Escape" && S.sel) { S.sel = null; S.preview = null; render(); }
     else if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "a") { ev.preventDefault(); actions.pickAll(); }
     else if (ev.key === "Delete" && !ev.repeat) actions[S.picking ? "pickDelete" : "remove"]({ dataset: { id: heroItem()?.id } }).catch(() => {});
@@ -564,6 +571,17 @@ function shownEntries() {
 // ---------- selecting many ----------
 
 const pickedIds = () => entries().map((e) => e.id).filter((id) => S.picked.has(id));
+function leavePicking() {
+  S.picking = false;
+  S.picked.clear();
+}
+// Ticks stay on what's shown: a filter or search that hides a ticked wallpaper unticks it, so
+// Delete never takes wallpapers the grid isn't showing.
+function prunePicks() {
+  if (!S.picked.size) return;
+  const shown = new Set(shownEntries().map((e) => e.id));
+  for (const id of S.picked) if (!shown.has(id)) S.picked.delete(id);
+}
 function togglePick(id) {
   if (S.picked.has(id)) S.picked.delete(id);
   else S.picked.add(id);
@@ -572,8 +590,8 @@ function togglePick(id) {
 function pickRange(from, to) {
   const ids = shownEntries().map((e) => e.id);
   const a = ids.indexOf(from), b = ids.indexOf(to);
-  if (a < 0 || b < 0) return togglePick(to);
   S.picking = true;
+  if (a < 0 || b < 0) { S.anchor = to; return togglePick(to); }
   for (const id of ids.slice(Math.min(a, b), Math.max(a, b) + 1)) S.picked.add(id);
 }
 
@@ -711,7 +729,7 @@ function renderLibrary() {
     .filter(([k, , n]) => k === "all" || k === S.filter || n);
 
   return `<div class="page" data-key="p-library">
-    ${head(`<label class="search">${ICON.search}<input id="search" placeholder="${esc(tr("Search"))}" value="${esc(S.query)}" spellcheck="false"></label>
+    ${head(`<label class="search">${ICON.search}<input id="search" placeholder="${esc(tr("Search"))}" aria-label="${esc(tr("Search"))}" value="${esc(S.query)}" spellcheck="false"></label>
       <button class="btn sm press ${S.picking ? "on" : ""}" data-act="pickMode" title="${esc(tr("Select several wallpapers to delete them or change their rotation together"))}">${ICON.check}${S.picking ? tr("Done") : tr("Select")}</button>`)}
     <div class="body">
       <section class="page">
@@ -731,6 +749,7 @@ function renderLibrary() {
 async function wsLoad(more = false) {
   const w = S.ws;
   const seq = ++w.seq;
+  const startPage = w.page;
   w.page = more ? w.page + 1 : 1;
   if (!more) { w.items = null; w.more = false; }
   w.loading = true;
@@ -758,7 +777,8 @@ async function wsLoad(more = false) {
   } catch (e) {
     if (seq !== w.seq) return;
     w.error = String(e);
-    if (more) w.page--;
+    // The loop above may have moved several pages on; the next try starts where this one did.
+    if (more) w.page = startPage;
   }
   w.loading = false;
   render();
@@ -865,7 +885,8 @@ function renderWorkshop() {
 
   const grid = items.length
     ? `<div class="grid">${items.map((i) => wsTileHtml(i, i.id === sel?.id)).join("")}</div>
-      ${w.more || (w.loading && items.length) ? `<div class="more"><button class="btn sm press" data-act="wsMore" ${w.loading ? "disabled" : ""}>${w.loading ? tr("Loading…") : tr("Load more")}</button></div>` : ""}`
+      ${w.error ? `<div class="more"><span class="muted">${esc(tr("Couldn't load more: {e}", { e: w.error }))}</span><button class="btn sm press" data-act="wsMore">${tr("Try again")}</button></div>`
+        : w.more || (w.loading && items.length) ? `<div class="more"><button class="btn sm press" data-act="wsMore" ${w.loading ? "disabled" : ""}>${w.loading ? tr("Loading…") : tr("Load more")}</button></div>` : ""}`
     : wsEmptyHtml();
   const note = S.state.workshop.steam ? "" :
     `<div class="warn ws-warn">${tr("Steam's Wallpaper Engine folder wasn't found. You can browse, but subscribing only downloads anything if Steam is installed and you own Wallpaper Engine (it has to stay installed; it doesn't have to run).")}</div>`;
@@ -873,7 +894,7 @@ function renderWorkshop() {
   return `<div class="page" data-key="p-workshop">
     <header class="top" data-tauri-drag-region><h1 data-tauri-drag-region>${tr("Workshop")}</h1>
       <span class="sp" data-tauri-drag-region></span>
-      ${discover ? `<label class="search">${ICON.search}<input id="ws-search" placeholder="${esc(tr("Search, then Enter"))}" value="${esc(w.search)}" spellcheck="false"></label>` : ""}
+      ${discover ? `<label class="search">${ICON.search}<input id="ws-search" placeholder="${esc(tr("Search, then Enter"))}" aria-label="${esc(tr("Search the Workshop"))}" value="${esc(w.draft ?? w.search)}" spellcheck="false"></label>` : ""}
     </header>
     <div class="sub-bar">
       ${seg("wsView", w.view, views)}
@@ -934,9 +955,10 @@ function seg(act, cur, opts) {
   return `<div class="seg">${opts.map(([v, t]) => `<button class="press ${String(cur) === v ? "on" : ""}" data-act="${act}" data-v="${v}">${t}</button>`).join("")}</div>`;
 }
 // A switch sends the value it flips to, so the on(el) handlers stay as they were.
-const offOn = (act, v) => `<button class="sw press ${v ? "on" : ""}" data-act="${act}" data-v="${v ? "0" : "1"}" role="switch" aria-checked="${!!v}"></button>`;
+// `{name}` in a switch's markup becomes the row's title, its accessible name.
+const offOn = (act, v) => `<button class="sw press ${v ? "on" : ""}" data-act="${act}" data-v="${v ? "0" : "1"}" role="switch" aria-checked="${!!v}" aria-label="{name}"></button>`;
 const row = (what, hint, control) =>
-  `<div class="set-row"><div class="what">${what}${hint ? `<div class="hint">${hint}</div>` : ""}</div>${control}</div>`;
+  `<div class="set-row"><div class="what">${what}${hint ? `<div class="hint">${hint}</div>` : ""}</div>${control.replace('aria-label="{name}"', `aria-label="${esc(what.replace(/<[^>]*>/g, ""))}"`)}</div>`;
 const section = (title, sub, rows) => `<div class="sec"><h3>${title}</h3>${sub ? `<p>${sub}</p>` : ""}<div class="card">${rows}</div></div>`;
 
 function renderSettings() {
@@ -966,7 +988,7 @@ function renderSettings() {
         seg("fit", c.fit, [["cover", tr("Fill")], ["contain", tr("Fit")], ["height", tr("Fit height")], ["stretch", tr("Stretch")], ["center", tr("Center")]])),
       row(tr("Speed"), tr("Playback speed for videos."), seg("speed", String(c.speed), speeds)),
       `<div class="set-row"><div class="what">${tr("Sound")}<div class="hint">${tr("Videos and HTML wallpapers with audio.")}</div></div>
-        ${c.muted ? "" : `<input id="volume" type="range" min="0" max="100" value="${Math.round(c.volume * 100)}">`}
+        ${c.muted ? "" : `<input id="volume" type="range" min="0" max="100" value="${Math.round(c.volume * 100)}" aria-label="${esc(tr("Volume"))}">`}
         ${seg("muted", c.muted ? "1" : "0", [["1", tr("Muted")], ["0", tr("On")]])}</div>`,
       row(tr("Shade the {bar}", { bar }), tr("Darkens a strip of moving wallpapers under the {bar} so it stays readable.", { bar }), offOn("shadeBar", c.shadeBar)),
       row(tr("Match the system wallpaper"), tr("Sets a still frame of each moving wallpaper as the Windows wallpaper, so the desktop matches before Backdrop starts."), offOn("stillFrame", c.stillFrame)),
@@ -1005,7 +1027,23 @@ function render() {
   renderNav();
   const html = S.tab === "displays" ? renderDisplays() : S.tab === "settings" ? renderSettings() : S.tab === "workshop" ? renderWorkshop() : renderLibrary();
   morph($("#page"), html);
+  // An open dialog takes the focus, and gives it back to its tile when it closes.
+  const dlg = $("#page .dialog");
+  if (dlg && !dlg.contains(document.activeElement)) dlg.querySelector(".dlg-foot button:not([disabled])")?.focus({ preventScroll: true });
+  else if (!dlg && S.ws.focusBack) $(`#page .tile[data-id="${S.ws.focusBack}"]`)?.focus({ preventScroll: true });
+  S.ws.focusBack = dlg ? S.ws.sel : null;
   syncScroll();
+}
+
+// Tab and Shift+Tab cycle through the buttons and fields in `box` instead of leaving it.
+function trapTab(ev, box) {
+  if (!box) return;
+  const f = [...box.querySelectorAll("button:not([disabled]), input, select, [tabindex]:not([tabindex='-1'])")];
+  if (!f.length) return;
+  const i = f.indexOf(document.activeElement);
+  const next = ev.shiftKey ? (i <= 0 ? f.length - 1 : i - 1) : (i < 0 || i === f.length - 1 ? 0 : i + 1);
+  ev.preventDefault();
+  f[next].focus();
 }
 
 // Near the bottom of the Workshop the next page loads without a click.
@@ -1049,7 +1087,10 @@ listen("tauri://drag-drop", async (e) => {
 });
 
 (async () => {
-  [S.state, S.upd] = await Promise.all([invoke("get_state"), invoke("update_state")]);
+  const [state, upd] = await Promise.all([invoke("get_state"), invoke("update_state")]);
+  // An event that arrived meanwhile is newer than these.
+  S.state ??= state;
+  S.upd ??= upd;
   document.body.classList.add("os-" + S.state.platform);
   LANG = S.state.lang;
   translateStatic();

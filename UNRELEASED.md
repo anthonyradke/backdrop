@@ -28,3 +28,8 @@ this list into the release notes and empties it for the next batch.
 - Music scenes on every display get the album cover, also when they start mid-song
 - A settings file Backdrop can't fully read (after going back to an older version, say) keeps every
   setting it can instead of resetting all of them, and the original is saved as `config.json.bad`
+- Select mode only acts on wallpapers the grid is showing, and leaving it clears the ticks
+- A Workshop page that fails to load more says so and can be retried; typed Workshop searches survive
+  until Enter
+- Switches, sliders and search fields have accessible names, and the Workshop dialog and the tour keep
+  keyboard focus inside them

@@ -3,6 +3,8 @@
    way (a nav on the left, a slim header with the page's own actions, then the content). The wallpapers
    are the only colourful things on screen. Kept cheap: no backdrop-filter, motion is transform/opacity. */
 :root {
+  /* Native controls (selects, sliders, scrollbars) draw dark too. */
+  color-scheme: dark;
   --bg: #0a0a0a;
   --card: #111111;
   --pop: #161616;

@@ -269,6 +269,9 @@ const STRINGS = {
     "Checking…": "Buscando…",
     "Check now": "Buscar ahora",
     "Updates": "Actualizaciones",
+    "Volume": "Volumen",
+    "Search the Workshop": "Buscar en el Workshop",
+    "Couldn't load more: {e}": "No se pudo cargar más: {e}",
   },
 
   de: {
@@ -536,6 +539,9 @@ const STRINGS = {
     "Checking…": "Wird gesucht…",
     "Check now": "Jetzt suchen",
     "Updates": "Updates",
+    "Volume": "Lautstärke",
+    "Search the Workshop": "Im Workshop suchen",
+    "Couldn't load more: {e}": "Weitere konnten nicht geladen werden: {e}",
   },
 
   "zh-Hans": {
@@ -803,6 +809,9 @@ const STRINGS = {
     "Checking…": "正在检查…",
     "Check now": "立即检查",
     "Updates": "更新",
+    "Volume": "音量",
+    "Search the Workshop": "搜索创意工坊",
+    "Couldn't load more: {e}": "无法加载更多：{e}",
   },
 };
 
