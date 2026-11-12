@@ -145,6 +145,22 @@
     img.src = src;
   }
 
+  // ---------- cost ----------
+
+  // Frames the page draws and time it spends in long tasks, sent every 10 s while it plays, so the
+  // library can say how heavy the wallpaper is.
+  let frames = 0, busy = 0, since = performance.now();
+  const count = () => { frames++; requestAnimationFrame(count); };
+  requestAnimationFrame(count);
+  try {
+    new PerformanceObserver((list) => { for (const e of list.getEntries()) busy += e.duration; }).observe({ type: "longtask", buffered: false });
+  } catch {}
+  setInterval(() => {
+    const secs = (performance.now() - since) / 1000;
+    if (!state.paused && secs > 0) tell({ stats: { fps: frames / secs, busy: busy / secs } });
+    frames = 0; busy = 0; since = performance.now();
+  }, 10000);
+
   // ---------- messages ----------
 
   const handlers = { state: onState, props: onProps, audio: onAudio, media: onMedia };

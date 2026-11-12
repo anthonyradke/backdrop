@@ -218,6 +218,8 @@ function show(p) {
   // A scene reads its properties as it loads, so new values mean loading it again; an HTML page
   // gets them live (below).
   if (!cur || cur.src !== p.src || cur.kind !== p.kind || (p.kind === "scene" && !sameProps(cur, p))) swap(p);
+  // A pause or resume starts the cost measurement over (see below).
+  if (cur?.paused !== p.paused) measured.node = null;
   cur = p;
   document.getElementById("shades").replaceChildren(...p.shade.map((s) => {
     const strip = document.createElement("div");
@@ -274,6 +276,7 @@ addEventListener("message", (e) => {
   if (el?.tagName !== "IFRAME" || e.source !== el.contentWindow) return;
   const m = e.data?.backdropShim;
   if (!m || typeof m !== "object") return;
+  if (m.stats && typeof m.stats === "object") el.stats = m.stats;
   if (m.wantsAudio) el.wantsAudio = true;
   if (m.wantsMedia) el.wantsMedia = true;
   if (m.ready && cur) show(cur);
@@ -319,6 +322,31 @@ setInterval(async () => {
   if (!scene?.running || scene.paused || !scene.wantsMedia) return;
   scene.setMedia(await invoke("now_playing", { have: scene.coverTrack ?? null }).catch(() => null));
 }, 2000);
+
+// What the wallpaper costs to show, every 20 s while it plays (see Cost in common.rs). Paused
+// stretches start the count again, so they don't make a wallpaper look light.
+let measured = { node: null, at: 0, frames: 0, dropped: 0 };
+setInterval(() => {
+  const node = el, now = performance.now();
+  const fresh = measured.node !== node || cur?.paused;
+  const secs = (now - measured.at) / 1000;
+  const q = node?.tagName === "VIDEO" ? node.getVideoPlaybackQuality?.() : null;
+  let stats = null;
+  if (!fresh && cur && secs > 0) {
+    if (node.scene?.stats?.frames) {
+      const st = node.scene.stats;
+      stats = { ms: st.ms / st.frames, fps: st.frames / secs, dropped: 0 };
+    } else if (q && q.totalVideoFrames > measured.frames) {
+      const n = q.totalVideoFrames - measured.frames;
+      stats = { ms: 0, fps: n / secs, dropped: (q.droppedVideoFrames - measured.dropped) / n };
+    } else if (node.tagName === "IFRAME" && node.stats) {
+      stats = { ms: node.stats.busy, fps: node.stats.fps, dropped: 0 };
+    }
+  }
+  if (stats) invoke("player_stats", { id: cur.src.split("/")[0], ...stats }).catch(() => {});
+  if (node?.scene) node.scene.stats = { frames: 0, ms: 0 };
+  measured = { node, at: now, frames: q?.totalVideoFrames ?? 0, dropped: q?.droppedVideoFrames ?? 0 };
+}, 20000);
 
 me.listen("player:update", (e) => show(e.payload));
 invoke("player_init").then((p) => { if (!p) report("no wallpaper assigned to this window"); show(p); }, report);

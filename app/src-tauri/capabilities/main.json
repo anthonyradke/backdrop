@@ -50,6 +50,7 @@
     "allow-set-in-display-rotation",
     "allow-set-schedule",
     "allow-set-app-rules",
-    "allow-running-apps"
+    "allow-running-apps",
+    "allow-player-stats"
   ]
 }

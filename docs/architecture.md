@@ -31,6 +31,14 @@ skipped and logged to `backdrop.log`; a scene that can't run at all shows its pr
 the system's output (WASAPI loopback) into frequency bands only while a scene that needs them is on screen,
 and keeps no audio.
 
+## Cost
+
+Each player measures what its wallpaper costs and reports it every 20 seconds while it plays
+(`player_stats`): for a scene, the main-thread time per frame and the frames drawn per second; for an
+HTML page, frames and long-task time per second, which `webshim.js` counts inside the page; for video,
+the share of dropped frames. `Cost::rate` in `common.rs` turns that into light, medium or heavy, and
+the item keeps the latest rating in its `meta.json`.
+
 ## Wallpaper properties
 
 Scenes and HTML wallpapers from Wallpaper Engine declare their own settings in `general.properties` of

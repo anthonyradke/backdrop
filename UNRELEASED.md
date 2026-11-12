@@ -56,3 +56,4 @@ this list into the release notes and empties it for the next batch.
 - A schedule in Settings changes the wallpaper at set times of day, on all displays or on one
 - With a different wallpaper on each display, each display can have its own rotation list
 - Settings can name programs that pause or mute the wallpapers while they run
+- The library shows what each wallpaper costs to show (light, medium or heavy), measured while it plays

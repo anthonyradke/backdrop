@@ -432,6 +432,7 @@ pub fn run() {
             commands::open_library_dir,
             commands::player_init,
             commands::player_log,
+            commands::player_stats,
             commands::set_in_rotation,
             commands::set_in_display_rotation,
             commands::set_schedule,

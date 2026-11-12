@@ -13,6 +13,7 @@
     "allow-save-frame",
     "allow-cursor-position",
     "allow-audio-spectrum",
-    "allow-now-playing"
+    "allow-now-playing",
+    "allow-player-stats"
   ]
 }

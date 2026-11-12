@@ -656,6 +656,16 @@ function pickRange(from, to) {
   for (const id of ids.slice(Math.min(a, b), Math.max(a, b) + 1)) S.picked.add(id);
 }
 
+// How heavy a wallpaper is to show, from what a player last measured.
+const COST = { light: "Light", medium: "Medium", heavy: "Heavy" };
+function costText(e) {
+  const c = e.cost;
+  const how = e.kind === "scene" ? tr("{ms} ms a frame at {fps} fps", { ms: c.ms, fps: Math.round(c.fps) })
+    : e.kind === "web" ? tr("{fps} fps, busy {ms} ms a second", { ms: Math.round(c.ms), fps: Math.round(c.fps) })
+    : tr("{p}% of frames dropped", { p: Math.round(c.dropped * 1000) / 10 });
+  return `${tr(COST[c.level] ?? c.level)} · ${how}`;
+}
+
 function tileHtml(e, sel) {
   const t = thumbUrl(e);
   const live = liveOn(e.id);
@@ -666,6 +676,7 @@ function tileHtml(e, sel) {
       ${t ? `<img src="${esc(t)}" loading="lazy" draggable="false" onerror="this.remove()">` : placeholder(e)}
       ${live.length ? `<span class="pill tl"><span class="dot ${live[0].status}"></span>${live.length > 1 ? esc(tr("{n} displays", { n: live.length })) : esc(live[0].name)}</span>` : ""}
       ${res ? `<span class="pill br">${res}</span>` : ""}
+      ${e.cost?.level === "heavy" ? `<span class="pill bl heavy" title="${esc(costText(e))}">${tr("Heavy")}</span>` : ""}
       ${S.picking ? `<span class="check">${ICON.check}</span>` : ""}
     </div>
     <div class="t-name">${esc(e.name)}</div>
@@ -688,6 +699,7 @@ function sideHtml(e) {
     [tr("Size"), fmtSize(e.size)],
     [tr("Added"), fmtDate(e.added)],
     e.workshop ? [tr("Source"), tr("Steam Workshop")] : null,
+    e.cost ? [tr("Cost"), costText(e)] : null,
   ].filter(Boolean);
   const canPreview = e.kind === "video" && !cantPlayHere(e);
   const previewing = canPreview && S.preview === e.id;

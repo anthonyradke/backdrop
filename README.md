@@ -47,6 +47,8 @@ Displays and playback
 Library
 - A grid with resolution badges and codec details, and a warning on HEVC and ProRes files, which WebView2 can't
   play.
+- What each wallpaper costs to show (light, medium or heavy), measured while it plays, with heavy ones marked
+  in the grid.
 - Multi-select for deleting wallpapers or changing their rotation in bulk.
 - A Workshop tab that browses the Wallpaper Engine Steam Workshop by genre and adds items to the library. Steam
   does the downloading, and updates it downloads later replace the library's copy. Anime is filtered out of

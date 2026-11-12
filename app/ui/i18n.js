@@ -291,6 +291,13 @@ const STRINGS = {
     "Pause or mute the wallpapers while a program is open, for example a game or a screen recorder.": "Pausa o silencia los fondos mientras un programa está abierto, por ejemplo un juego o una grabadora de pantalla.",
     "Program": "Programa",
     "Add": "Añadir",
+    "Cost": "Coste",
+    "Light": "Ligero",
+    "Medium": "Medio",
+    "Heavy": "Pesado",
+    "{ms} ms a frame at {fps} fps": "{ms} ms por fotograma a {fps} fps",
+    "{fps} fps, busy {ms} ms a second": "{fps} fps, ocupado {ms} ms por segundo",
+    "{p}% of frames dropped": "{p} % de fotogramas perdidos",
   },
 
   de: {
@@ -580,6 +587,13 @@ const STRINGS = {
     "Pause or mute the wallpapers while a program is open, for example a game or a screen recorder.": "Pausiert oder stummt die Hintergründe, solange ein Programm geöffnet ist, etwa ein Spiel oder eine Bildschirmaufnahme.",
     "Program": "Programm",
     "Add": "Hinzufügen",
+    "Cost": "Aufwand",
+    "Light": "Leicht",
+    "Medium": "Mittel",
+    "Heavy": "Schwer",
+    "{ms} ms a frame at {fps} fps": "{ms} ms pro Bild bei {fps} fps",
+    "{fps} fps, busy {ms} ms a second": "{fps} fps, {ms} ms pro Sekunde ausgelastet",
+    "{p}% of frames dropped": "{p} % der Bilder ausgelassen",
   },
 
   "zh-Hans": {
@@ -869,6 +883,13 @@ const STRINGS = {
     "Pause or mute the wallpapers while a program is open, for example a game or a screen recorder.": "在某个程序打开时暂停壁纸或将其静音，例如游戏或录屏软件。",
     "Program": "程序",
     "Add": "添加",
+    "Cost": "开销",
+    "Light": "轻",
+    "Medium": "中",
+    "Heavy": "重",
+    "{ms} ms a frame at {fps} fps": "每帧 {ms} 毫秒，{fps} fps",
+    "{fps} fps, busy {ms} ms a second": "{fps} fps，每秒繁忙 {ms} 毫秒",
+    "{p}% of frames dropped": "丢帧 {p}%",
   },
 };
 

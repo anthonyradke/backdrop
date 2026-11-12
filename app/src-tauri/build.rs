@@ -19,6 +19,7 @@ const COMMANDS: &[&str] = &[
     "open_library_dir",
     "player_init",
     "player_log",
+    "player_stats",
     "set_in_rotation",
     "set_in_display_rotation",
     "set_schedule",

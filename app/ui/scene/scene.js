@@ -1246,7 +1246,12 @@ ${fs}`]]) {
       due = now - due > interval ? now + interval : due + interval;
       clock += Math.min(0.25, (now - last) / 1000) * (this.speed || 1);
       last = now;
+      // How long drawing takes, which the player reports as the wallpaper's cost.
+      const t0 = performance.now();
       this.renderAt(clock);
+      const st = (this.stats ||= { frames: 0, ms: 0 });
+      st.frames++;
+      st.ms += performance.now() - t0;
     };
     this.resumeFrames = () => {
       if (!this.running || this.raf) return;

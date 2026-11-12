@@ -55,6 +55,48 @@ pub struct Item {
     /// newest file in it). A newer download is an update to import.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_mtime: Option<i64>,
+    /// What the wallpaper costs to show, as the player last measured it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<Cost>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Level {
+    Light,
+    Medium,
+    Heavy,
+}
+
+/// A player's measurement of a wallpaper.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Cost {
+    pub level: Level,
+    /// Main-thread milliseconds per frame (scenes), or per second of busy work (HTML).
+    pub ms: f64,
+    /// Frames drawn per second.
+    pub fps: f64,
+    /// Share of video frames dropped, 0-1.
+    #[serde(default)]
+    pub dropped: f64,
+}
+
+impl Cost {
+    /// Rates a measurement. Scenes draw at 30 fps, so ~33 ms is the whole frame budget; a page's
+    /// "busy" time is long tasks per second; video decodes on the GPU, so dropped frames tell.
+    pub fn rate(kind: Kind, ms: f64, fps: f64, dropped: f64) -> Cost {
+        let level = match kind {
+            Kind::Scene if ms > 8.0 || fps < 24.0 => Level::Heavy,
+            Kind::Scene if ms > 3.0 => Level::Medium,
+            Kind::Web if ms > 200.0 || fps < 24.0 => Level::Heavy,
+            Kind::Web if ms > 50.0 => Level::Medium,
+            Kind::Video | Kind::Image if dropped > 0.05 => Level::Heavy,
+            Kind::Video | Kind::Image if dropped > 0.01 => Level::Medium,
+            _ => Level::Light,
+        };
+        let round = |v: f64| (v * 10.0).round() / 10.0;
+        Cost { level, ms: round(ms), fps: round(fps), dropped: (dropped * 1000.0).round() / 1000.0 }
+    }
 }
 
 pub const VIDEO_EXTS: &[&str] = &["mp4", "m4v", "mov", "webm", "mkv"];
@@ -428,6 +470,15 @@ mod tests {
         assert_eq!(newest_mtime(&dir.join("a")), Some(1000));
         assert_eq!(newest_mtime(&dir.join("missing")), None);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cost_levels() {
+        assert_eq!(Cost::rate(Kind::Scene, 1.5, 30.0, 0.0).level, Level::Light);
+        assert_eq!(Cost::rate(Kind::Scene, 5.0, 30.0, 0.0).level, Level::Medium);
+        assert_eq!(Cost::rate(Kind::Scene, 2.0, 15.0, 0.0).level, Level::Heavy);
+        assert_eq!(Cost::rate(Kind::Web, 300.0, 60.0, 0.0).level, Level::Heavy);
+        assert_eq!(Cost::rate(Kind::Video, 0.0, 30.0, 0.02).level, Level::Medium);
     }
 
     #[test]

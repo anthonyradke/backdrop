@@ -435,6 +435,12 @@
           "markdownDescription": "Enables the player_log command without any pre-configured scope."
         },
         {
+          "description": "Enables the player_stats command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-player-stats",
+          "markdownDescription": "Enables the player_stats command without any pre-configured scope."
+        },
+        {
           "description": "Enables the rename_item command without any pre-configured scope.",
           "type": "string",
           "const": "allow-rename-item",
@@ -667,6 +673,12 @@
           "type": "string",
           "const": "deny-player-log",
           "markdownDescription": "Denies the player_log command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the player_stats command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-player-stats",
+          "markdownDescription": "Denies the player_stats command without any pre-configured scope."
         },
         {
           "description": "Denies the rename_item command without any pre-configured scope.",

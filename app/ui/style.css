@@ -186,6 +186,8 @@ main { flex: 1; min-width: 0; display: flex; }
 .pill .dot { width: 6px; height: 6px; }
 .pill.tl { left: 6px; top: 6px; }
 .pill.br { right: 6px; bottom: 6px; }
+.pill.bl { left: 6px; bottom: 6px; }
+.pill.heavy { color: #fbbf24; }
 .t-name { margin-top: 7px; font-weight: 500; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .t-meta { display: flex; align-items: center; gap: 5px; color: var(--dim); font-size: 12px; white-space: nowrap; overflow: hidden; }
 .t-meta svg { width: 12px; height: 12px; }

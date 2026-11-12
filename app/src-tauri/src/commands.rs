@@ -526,6 +526,31 @@ pub async fn now_playing(have: Option<String>) -> Result<Option<crate::nowplayin
     tauri::async_runtime::spawn_blocking(move || crate::nowplaying::read(have.as_deref())).await.map_err(|e| e.to_string())
 }
 
+/// A player's measurement of what its wallpaper costs to show (see `Cost::rate`). Saved with the
+/// item when its rating changes, so the library can show it later.
+#[tauri::command]
+pub fn player_stats(core: State<'_, Core>, id: String, ms: f64, fps: f64, dropped: f64) -> Result<(), String> {
+    if !common::valid_id(&id) || ![ms, fps, dropped].iter().all(|v| v.is_finite() && *v >= 0.0) {
+        return Err("bad stats".into());
+    }
+    let changed = {
+        let mut lib = core.library.lock().unwrap();
+        let Some(item) = lib.items.get_mut(&id) else { return Ok(()) };
+        let cost = common::Cost::rate(item.kind, ms, fps.min(1000.0), dropped.min(1.0));
+        let changed = item.cost.as_ref().map(|c| c.level) != Some(cost.level);
+        item.cost = Some(cost);
+        if changed {
+            let item = item.clone();
+            let _ = lib.save_meta(&item);
+        }
+        changed
+    };
+    if changed {
+        core.emit_state();
+    }
+    Ok(())
+}
+
 /// Players report problems (a video that won't decode, autoplay refused) into backdrop.log.
 #[tauri::command]
 pub fn player_log(window: WebviewWindow, msg: String) {
