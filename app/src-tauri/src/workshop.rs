@@ -347,6 +347,21 @@ pub fn browse(q: &Query, hidden: &Hidden) -> Result<Page, String> {
 
 /// Every `steamapps/workshop/content/431960` folder, one per Steam library that has one.
 pub fn content_dirs() -> Vec<PathBuf> {
+    // Asked for on every state update and download tick; finding them reads the registry and
+    // Steam's library list, so the answer is kept for a little while.
+    static CACHE: std::sync::Mutex<Option<(std::time::Instant, Vec<PathBuf>)>> = std::sync::Mutex::new(None);
+    let mut cache = CACHE.lock().unwrap();
+    if let Some((at, dirs)) = cache.as_ref() {
+        if at.elapsed() < Duration::from_secs(30) {
+            return dirs.clone();
+        }
+    }
+    let dirs = find_content_dirs();
+    *cache = Some((std::time::Instant::now(), dirs.clone()));
+    dirs
+}
+
+fn find_content_dirs() -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = vec![];
     for lib in steam_libraries() {
         let dir = lib.join("steamapps").join("workshop").join("content").join(APP_ID.to_string());
@@ -527,6 +542,9 @@ pub fn import(core: &Core, id: &str) -> Result<Item, String> {
 struct Saved {
     /// Workshop ids subscribed from Backdrop that haven't landed in the library yet.
     pending: Vec<String>,
+    /// When each pending id was subscribed (Unix seconds), so ones Steam never delivers expire.
+    #[serde(rename = "pendingSince")]
+    pending_since: HashMap<String, i64>,
     #[serde(flatten)]
     hidden: Hidden,
 }
@@ -573,6 +591,7 @@ impl Store {
     pub fn add_pending(&mut self, id: &str) {
         if !self.saved.pending.iter().any(|x| x == id) {
             self.saved.pending.push(id.to_string());
+            self.saved.pending_since.insert(id.to_string(), common::now());
             self.save();
         }
     }
@@ -580,9 +599,31 @@ impl Store {
     pub fn remove_pending(&mut self, id: &str) {
         let n = self.saved.pending.len();
         self.saved.pending.retain(|x| x != id);
+        self.saved.pending_since.remove(id);
         if self.saved.pending.len() != n {
             self.save();
         }
+    }
+
+    /// Drops pending ids older than `max_secs` (removed from the workshop, never downloaded) and
+    /// returns them. Ids saved before times were kept start their clock now.
+    pub fn expire_pending(&mut self, max_secs: i64) -> Vec<String> {
+        let now = common::now();
+        let Saved { pending, pending_since, .. } = &mut self.saved;
+        let mut changed = false;
+        for id in pending.iter() {
+            if !pending_since.contains_key(id) {
+                pending_since.insert(id.clone(), now);
+                changed = true;
+            }
+        }
+        let old: Vec<String> = pending.iter().filter(|id| now - pending_since[*id] > max_secs).cloned().collect();
+        pending.retain(|id| !old.contains(id));
+        pending_since.retain(|id, _| pending.contains(id));
+        if changed || !old.is_empty() {
+            self.save();
+        }
+        old
     }
 
     /// Hides one item, or with `creator`, everything that creator uploaded.
@@ -606,10 +647,18 @@ impl Store {
 
 /// Every few seconds, imports pending subscriptions that Steam has finished downloading. Steam
 /// downloads into `workshop/downloads` and only moves the folder into `content` when it's done.
+/// How long a subscribed item may take to arrive before Backdrop stops waiting for it.
+const PENDING_MAX_SECS: i64 = 24 * 3600;
+
 pub fn spawn(app: AppHandle) {
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_secs(5));
         let core = app.state::<Core>();
+        let expired = core.workshop.lock().unwrap().expire_pending(PENDING_MAX_SECS);
+        if !expired.is_empty() {
+            log(format!("workshop: stopped waiting for {expired:?}; Steam never delivered them"));
+            core.emit_state();
+        }
         let ids = core.workshop.lock().unwrap().pending().to_vec();
         for id in ids {
             if local_item(&id).is_none() {
@@ -638,6 +687,21 @@ pub fn valid_ws_id(id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pending_items_expire() {
+        let path = std::env::temp_dir().join(format!("backdrop-ws-expiry-{}.json", std::process::id()));
+        // A file from before pending times were saved.
+        std::fs::write(&path, r#"{"pending":["1","2"],"items":["9"]}"#).unwrap();
+        let mut store = Store::load(path.clone());
+        assert!(store.expire_pending(60).is_empty());
+        store.saved.pending_since.insert("1".into(), common::now() - 120);
+        assert_eq!(store.expire_pending(60), vec!["1".to_string()]);
+        let again = Store::load(path.clone());
+        assert_eq!(again.pending(), ["2".to_string()]);
+        assert_eq!(again.hidden().items, ["9".to_string()]);
+        let _ = std::fs::remove_file(&path);
+    }
 
     #[test]
     fn local_files_stay_in_the_item() {

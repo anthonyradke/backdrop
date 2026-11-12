@@ -46,3 +46,4 @@ this list into the release notes and empties it for the next batch.
   display was set last
 - Music bars in scenes fall back down when the music stops
 - Paused scenes use no CPU at all, and large scenes use less memory
+- Backdrop stops waiting for a subscribed Workshop item after a day if Steam never delivers it
