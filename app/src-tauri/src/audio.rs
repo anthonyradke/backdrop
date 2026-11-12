@@ -195,9 +195,17 @@ mod capture {
         let capture: IAudioCaptureClient = client.GetService()?;
         client.Start()?;
         let mut analyzer = Analyzer::new(rate, channels);
+        let mut heard = std::time::Instant::now();
         while wanted() {
             std::thread::sleep(Duration::from_millis(10));
             let mut waiting = capture.GetNextPacketSize()?;
+            // Loopback delivers nothing at all while nothing plays, so the levels fall from here
+            // instead of staying where the music stopped.
+            if waiting > 0 {
+                heard = std::time::Instant::now();
+            } else if heard.elapsed() > Duration::from_millis(50) {
+                publish([[0.0; BANDS]; 2]);
+            }
             while waiting > 0 {
                 let (mut data, mut frames, mut flags) = (std::ptr::null_mut(), 0u32, 0u32);
                 capture.GetBuffer(&mut data, &mut frames, &mut flags, None, None)?;

@@ -11,6 +11,9 @@ use tauri::http::{header, Request, Response, StatusCode};
 const STOCK: &str = "we-assets";
 /// Largest body sent for one range request; the player asks again for the rest.
 const MAX_CHUNK: u64 = 4 << 20;
+/// Largest file sent whole to a request without a Range header. Scenes fetch their textures and
+/// videos that way, and those can be big; a multi-GB video is not.
+const MAX_WHOLE: u64 = 512 << 20;
 
 pub fn content_type(path: &Path) -> &'static str {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
@@ -168,6 +171,14 @@ pub fn handle(root: &Path, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
                     .unwrap();
             };
             let end = end.min(start + MAX_CHUNK - 1);
+            if req.method() == tauri::http::Method::HEAD {
+                return builder
+                    .status(StatusCode::PARTIAL_CONTENT)
+                    .header(header::CONTENT_RANGE, format!("bytes {start}-{end}/{len}"))
+                    .header(header::CONTENT_LENGTH, end - start + 1)
+                    .body(Vec::new())
+                    .unwrap();
+            }
             let mut buf = vec![0u8; (end - start + 1) as usize];
             if file.seek(SeekFrom::Start(start)).and_then(|_| file.read_exact(&mut buf)).is_err() {
                 return empty(StatusCode::INTERNAL_SERVER_ERROR);
@@ -179,12 +190,29 @@ pub fn handle(root: &Path, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
                 .body(buf)
                 .unwrap()
         }
-        None => {
+        // Files go whole, up to MAX_WHOLE. A bigger one without a Range header gets its first chunk
+        // as a partial response, so a stray plain GET of a multi-GB video can't load it all into memory.
+        None if len <= MAX_WHOLE => {
             let mut buf = Vec::with_capacity(len as usize);
             if file.read_to_end(&mut buf).is_err() {
                 return empty(StatusCode::INTERNAL_SERVER_ERROR);
             }
+            if req.method() == tauri::http::Method::HEAD {
+                return builder.status(StatusCode::OK).header(header::CONTENT_LENGTH, len).body(Vec::new()).unwrap();
+            }
             builder.status(StatusCode::OK).header(header::CONTENT_LENGTH, buf.len()).body(buf).unwrap()
+        }
+        None => {
+            let mut buf = vec![0u8; MAX_CHUNK as usize];
+            if file.read_exact(&mut buf).is_err() {
+                return empty(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+            builder
+                .status(StatusCode::PARTIAL_CONTENT)
+                .header(header::CONTENT_RANGE, format!("bytes 0-{}/{len}", MAX_CHUNK - 1))
+                .header(header::CONTENT_LENGTH, buf.len())
+                .body(buf)
+                .unwrap()
         }
     }
 }
@@ -192,6 +220,29 @@ pub fn handle(root: &Path, req: &Request<Vec<u8>>) -> Response<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn huge_files_never_go_whole() {
+        let root = std::env::temp_dir().join(format!("backdrop-media-{}", std::process::id()));
+        let id = "0123456789abcdef";
+        std::fs::create_dir_all(root.join(id)).unwrap();
+        // A sparse file, so the test doesn't write half a gigabyte.
+        std::fs::File::create(root.join(id).join("media.mp4")).unwrap().set_len(MAX_WHOLE + 10).unwrap();
+        std::fs::write(root.join(id).join("small.json"), b"{}").unwrap();
+        let get = |path: &str, method: &str| {
+            let req = Request::builder().method(method).uri(format!("media://localhost/{id}/{path}")).body(Vec::new()).unwrap();
+            handle(&root, &req)
+        };
+        let r = get("media.mp4", "GET");
+        assert_eq!(r.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(r.body().len() as u64, MAX_CHUNK);
+        assert_eq!(r.headers()[header::CONTENT_RANGE], format!("bytes 0-{}/{}", MAX_CHUNK - 1, MAX_WHOLE + 10));
+        let r = get("small.json", "GET");
+        assert_eq!((r.status(), r.body().as_slice()), (StatusCode::OK, &b"{}"[..]));
+        let r = get("small.json", "HEAD");
+        assert!(r.body().is_empty() && r.headers()[header::CONTENT_LENGTH] == "2");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn ranges() {

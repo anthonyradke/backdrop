@@ -253,11 +253,13 @@ pub fn mp4_codec(path: &Path) -> Option<String> {
             } else if size == 0 {
                 size = end - pos;
             }
-            if size < header || pos + size > end {
+            // Sizes come from the file, so they're added with overflow in mind.
+            let Some(box_end) = pos.checked_add(size) else { break };
+            if size < header || box_end > end {
                 break;
             }
-            out.push((kind, pos + header, pos + size));
-            pos += size;
+            out.push((kind, pos + header, box_end));
+            pos = box_end;
         }
         Some(out)
     }

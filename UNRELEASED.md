@@ -44,3 +44,4 @@ this list into the release notes and empties it for the next batch.
   and a still image Windows refused at login is applied once it can be
 - "Fit height" applies one position to every display, as Windows requires, instead of whichever
   display was set last
+- Music bars in scenes fall back down when the music stops

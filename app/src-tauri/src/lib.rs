@@ -67,6 +67,8 @@ pub struct Core {
     config_path: PathBuf,
     pub config: Mutex<Config>,
     pub library: Mutex<Library>,
+    /// The library folder (never changes; `library.root` without the lock).
+    pub root: PathBuf,
     /// Held for the whole of an import (see `library::import_into`).
     pub import_lock: Mutex<()>,
     pub manual_pause: AtomicBool,
@@ -362,7 +364,8 @@ pub fn run() {
             Some(vec!["--hidden"]),
         ))
         .register_asynchronous_uri_scheme_protocol("media", |ctx, req, responder| {
-            let root = ctx.app_handle().state::<Core>().library.lock().unwrap().root.clone();
+            // Every video chunk comes through here, so it doesn't wait on the library lock.
+            let root = ctx.app_handle().state::<Core>().root.clone();
             std::thread::spawn(move || responder.respond(media::handle(&root, &req)));
         })
         .setup(|app| {
@@ -378,6 +381,7 @@ pub fn run() {
             let loopback = loopback::start(library.root.clone());
             app.manage(Core {
                 app: handle.clone(),
+                root: library.root.clone(),
                 config_path,
                 config: Mutex::new(config),
                 library: Mutex::new(library),
