@@ -35,3 +35,6 @@ this list into the release notes and empties it for the next batch.
   keyboard focus inside them
 - Scene shaders with a `/*` inside a line comment, hex numbers or integer division in `#if` compile
   as written
+- A scene comes back on its own after a GPU reset or driver update instead of staying black
+- Scenes free the fonts and GPU memory they use when they're replaced, and scripts that keep making
+  and removing layers no longer leak memory

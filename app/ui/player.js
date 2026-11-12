@@ -52,6 +52,17 @@ function swap(p) {
     const scene = new WE.Scene(next, { base: url(p.src), stock: `${BASE}we-assets/`, log: report, screen: [p.rect[2], p.rect[3]] });
     next.scene = scene;
     const canvas = next;
+    // A GPU reset or driver update takes the WebGL context away. The scene is rebuilt on a new
+    // canvas once the GPU is back, or after a few seconds if the browser never says so.
+    let rebuild = null;
+    canvas.addEventListener("webglcontextlost", (e) => {
+      e.preventDefault();
+      if (scene.destroyed || el !== canvas || !cur) return;
+      report(`scene ${p.src}: lost the WebGL context; rebuilding`);
+      const again = () => { clearTimeout(rebuild); if (el === canvas && cur) { swap(cur); show(cur); } };
+      rebuild = setTimeout(again, 5000);
+      canvas.addEventListener("webglcontextrestored", again, { once: true });
+    });
     scene.load().then(() => {
       if (el !== canvas) return;
       show(cur);

@@ -657,6 +657,14 @@ class Sprites {
 }
 
 WE.ParticleLayer = class extends WE.LayerBase {
+  dispose() {
+    const gl = this.scene.gl;
+    for (const part of this.parts || []) {
+      gl.deleteVertexArray(part.mesh.vao);
+      gl.deleteBuffer(part.mesh.buf);
+    }
+    this.parts = [];
+  }
   async init() {
     const s = this.scene, d = this.data;
     this.draws = true;

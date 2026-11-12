@@ -7,6 +7,9 @@ var WE = window.WE || (window.WE = {});
 
 // ---------- files ----------
 
+// Layers a scene's scripts may create over its life; more is a script stuck in a loop.
+const MAX_SCRIPT_LAYERS = 2000;
+
 // Looks a file up in the scene, then in the effects it uses, then in Wallpaper Engine's own assets.
 class Assets {
   constructor(base, stock) {
@@ -338,6 +341,9 @@ function applyBlend(gl, mode) {
 class Layer {
   // The view this layer is seen through: flat, or the 3D camera for layers placed in space.
   camera() { return this.perspective ? this.scene.perspectiveCamera : this.scene.projection; }
+  // Frees what the layer holds on the GPU when a script removes it while the scene runs. (Tearing
+  // the whole scene down drops the context instead.)
+  dispose() {}
   constructor(scene, data) {
     this.scene = scene;
     this.data = data;
@@ -462,6 +468,11 @@ class ImageLayer extends Layer {
     return [s.borrow(this.w, this.h), s.borrow(this.w, this.h)];
   }
   release(pair) { if (!this.kept) pair.forEach((t) => this.scene.giveBack(t)); }
+  dispose() {
+    this.a?.delete();
+    this.b?.delete();
+    this.a = this.b = null;
+  }
   async buildEffects() {
     const s = this.scene;
     this.effects = [];
@@ -738,7 +749,12 @@ WE.Scene = class {
   }
 
   // A layer a script makes while the scene runs. It goes on top; until it has loaded it isn't drawn.
+  // A script that keeps making layers stops getting them at MAX_SCRIPT_LAYERS.
   async addLayer(o) {
+    if ((this.scriptLayers = (this.scriptLayers || 0) + 1) > MAX_SCRIPT_LAYERS) {
+      this.warnOnce(`scripts: more than ${MAX_SCRIPT_LAYERS} layers created; ignoring the rest`);
+      return;
+    }
     const layer = await this.makeLayer(o);
     if (!layer || this.removed?.has(o.id)) return;
     if (o.parent != null) layer.parent = this.byId.get(o.parent) || null;
@@ -754,6 +770,7 @@ WE.Scene = class {
     this.byId.delete(id);
     this.layers = this.layers.filter((x) => x !== l);
     this.order = this.order.filter((x) => x !== l);
+    try { l.dispose(); } catch (e) { this.warnOnce(`remove "${l.name}": ${e.message}`); }
   }
 
   buildOrder(objs) {
@@ -1300,11 +1317,14 @@ ${fs}`]]) {
   }
 
   destroy() {
+    // The context loss below is on purpose; the player must not try to rebuild after it.
+    this.destroyed = true;
     this.running = false;
     cancelAnimationFrame(this.raf);
     for (const v of this.videos) { v.video.pause(); URL.revokeObjectURL(v.video.src); v.video.removeAttribute("src"); v.video.load(); }
     for (const s of this.sounds) s.stop?.();
     WE.stopScripts?.(this);
+    for (const face of this.fontFaces?.values() ?? []) face.then((f) => f && document.fonts.delete(f));
     this.gl?.getExtension("WEBGL_lose_context")?.loseContext();
   }
 };

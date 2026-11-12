@@ -28,15 +28,26 @@ WE.TextLayer = class extends WE.ImageLayerBase {
   async font(name) {
     if (SYSTEM_FONTS[name]) return SYSTEM_FONTS[name];
     if (/^systemfont_/.test(name)) return name.slice(11);
-    const bytes = await this.scene.assets.find(name);
-    if (!bytes) return "sans-serif";
-    try {
-      const family = `wefont${++fontCount}`;
-      const face = new FontFace(family, bytes);
-      await face.load();
-      document.fonts.add(face);
-      return `'${family}'`;
-    } catch { return "sans-serif"; }
+    // One FontFace per file for the whole scene, removed again when the scene goes (scene.destroy).
+    const faces = (this.scene.fontFaces ||= new Map());
+    if (!faces.has(name)) {
+      faces.set(name, (async () => {
+        const bytes = await this.scene.assets.find(name);
+        if (!bytes) return null;
+        try {
+          const face = new FontFace(`wefont${++fontCount}`, bytes);
+          await face.load();
+          document.fonts.add(face);
+          return face;
+        } catch { return null; }
+      })());
+    }
+    const face = await faces.get(name);
+    return face ? `'${face.family}'` : "sans-serif";
+  }
+  dispose() {
+    super.dispose();
+    if (this.tex?.tex) this.scene.gl.deleteTexture(this.tex.tex);
   }
   // Wraps to the box, keeping to the row limit when there is one.
   lines(text, width) {
