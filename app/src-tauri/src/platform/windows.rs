@@ -188,11 +188,17 @@ pub fn set_image(_app: &AppHandle, d: &Display, path: &Path, fit: Fit) -> Result
         let mut found = false;
         for i in 0..n {
             let Ok(id) = dw.GetMonitorDevicePathAt(i) else { continue };
-            if dw.GetMonitorRECT(PCWSTR(id.0)).is_ok_and(|r| rect_eq(&r, &d)) {
-                dw.SetWallpaper(PCWSTR(id.0), PCWSTR(path.as_ptr())).map_err(|e| e.to_string())?;
+            let set = if dw.GetMonitorRECT(PCWSTR(id.0)).is_ok_and(|r| rect_eq(&r, &d)) {
+                Some(dw.SetWallpaper(PCWSTR(id.0), PCWSTR(path.as_ptr())))
+            } else {
+                None
+            };
+            // Freed before a failure returns, or every retry would leak the monitor's path string.
+            CoTaskMemFree(Some(id.0 as *const _));
+            if let Some(set) = set {
+                set.map_err(|e| e.to_string())?;
                 found = true;
             }
-            CoTaskMemFree(Some(id.0 as *const _));
         }
         // The engine turns Height into Cover or Contain before it gets here.
         let pos = match fit {
