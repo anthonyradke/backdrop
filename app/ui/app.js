@@ -367,6 +367,7 @@ const actions = {
   },
   convert: (el) => call("convert_video", { id: el.dataset.id }),
   installFfmpeg: () => call("install_ffmpeg", {}, tr("FFmpeg is installed")),
+  ffmpegDownload: () => call("open_ffmpeg_download", {}),
   appRuleAdd: () => {
     const name = $("#app-new")?.value.trim().toLowerCase();
     if (!name) return;
@@ -695,8 +696,12 @@ function convertHtml(e) {
   if (S.state.ffmpeg) return `<div class="warn">${esc(tr("Windows can't play {codec} video.", { codec }))}
     <div><button class="btn sm press" data-act="convert" data-id="${e.id}">${tr("Convert to H.264")}</button></div></div>`;
   const busy = S.state.ffmpegInstalling;
-  return `<div class="warn">${esc(tr("Windows can't play {codec} video. Backdrop can convert it to H.264 with FFmpeg, a free video tool that winget installs.", { codec }))}
-    <div><button class="btn sm press" data-act="installFfmpeg"${busy ? " disabled" : ""}>${esc(tr(busy ? "Installing FFmpeg…" : "Install FFmpeg"))}</button></div></div>`;
+  // winget missing or failing: say why, and how to put FFmpeg there by hand.
+  const err = !busy && S.state.ffmpegError;
+  const manual = err ? `<p>${esc(tr("Couldn't install FFmpeg: {reason}.", { reason: err }))}
+    ${esc(tr("Download it from ffmpeg.org, put ffmpeg.exe in C:\\ffmpeg\\bin or a folder on the PATH, then press Try again."))}</p>` : "";
+  return `<div class="warn"><div>${esc(tr("Windows can't play {codec} video. Backdrop can convert it to H.264 with FFmpeg, a free video tool that winget installs.", { codec }))}${manual}</div>
+    <div><button class="btn sm press" data-act="installFfmpeg"${busy ? " disabled" : ""}>${esc(tr(busy ? "Installing FFmpeg…" : err ? "Try again" : "Install FFmpeg"))}</button>${err ? ` <button class="btn sm press" data-act="ffmpegDownload">${esc(tr("Download FFmpeg"))}</button>` : ""}</div></div>`;
 }
 
 // The inspector on the right: the picked wallpaper large, what can be done with it, then its details.

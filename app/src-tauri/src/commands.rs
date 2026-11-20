@@ -389,6 +389,12 @@ pub async fn install_ffmpeg(app: AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || crate::transcode::install(&app.state::<Core>())).await.map_err(|e| e.to_string())?
 }
 
+/// Opens ffmpeg.org's Windows builds in the browser, for installing FFmpeg by hand.
+#[tauri::command]
+pub fn open_ffmpeg_download(app: AppHandle) -> Result<(), String> {
+    app.opener().open_url(crate::transcode::DOWNLOAD_URL, None::<&str>).map_err(|e| e.to_string())
+}
+
 /// Replaces the schedule: the times of day the wallpaper changes, each to a chosen wallpaper.
 #[tauri::command]
 pub fn set_schedule(core: State<'_, Core>, slots: Vec<config::Slot>) -> Result<(), String> {

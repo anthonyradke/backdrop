@@ -390,3 +390,4 @@ input[type=range] { width: 130px; accent-color: var(--primary); }
 .warn .bar { height: 4px; margin-top: 8px; border-radius: 2px; background: var(--muted); overflow: hidden; }
 .warn .bar i { display: block; height: 100%; background: var(--primary); transition: width .3s ease; }
 .warn .btn { margin-top: 8px; }
+.warn p { margin: 6px 0 0; }

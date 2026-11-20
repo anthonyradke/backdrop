@@ -195,6 +195,8 @@ pub struct StateView {
     ffmpeg: bool,
     /// winget is installing FFmpeg now.
     ffmpeg_installing: bool,
+    /// Why the last FFmpeg install failed, with how to install it by hand.
+    ffmpeg_error: Option<String>,
     /// Item id -> percent done, for conversions running now.
     converting: HashMap<String, u8>,
     workshop: WorkshopView,
@@ -275,6 +277,7 @@ impl Core {
             lang: ui_language(&config.language),
             ffmpeg: transcode::ffmpeg().is_some(),
             ffmpeg_installing: transcode::installing(),
+            ffmpeg_error: transcode::install_error(),
             converting: transcode::progress(),
             config,
             displays: self.displays.lock().unwrap().clone(),
@@ -469,6 +472,7 @@ pub fn run() {
             commands::running_apps,
             commands::convert_video,
             commands::install_ffmpeg,
+            commands::open_ffmpeg_download,
             commands::next_wallpaper,
             commands::save_frame,
             commands::reset_settings,

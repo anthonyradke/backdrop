@@ -39,9 +39,25 @@ fn set_progress(id: &str, p: Option<u8>) {
 static FOUND: Mutex<Option<(Instant, Option<PathBuf>)>> = Mutex::new(None);
 /// winget is installing FFmpeg now.
 static INSTALLING: AtomicBool = AtomicBool::new(false);
+/// Why the last Install FFmpeg didn't work ("winget isn't on this PC"), shown in the library with
+/// how to install it by hand until FFmpeg turns up.
+static INSTALL_ERROR: Mutex<Option<String>> = Mutex::new(None);
+
+/// Where to get FFmpeg by hand when winget can't: ffmpeg.org's list of Windows builds.
+pub const DOWNLOAD_URL: &str = "https://ffmpeg.org/download.html#build-windows";
 
 pub fn installing() -> bool {
     INSTALLING.load(Ordering::Relaxed)
+}
+
+/// Why installing FFmpeg failed, while it still isn't installed.
+pub fn install_error() -> Option<String> {
+    let err = INSTALL_ERROR.lock().unwrap().clone()?;
+    if ffmpeg().is_some() {
+        *INSTALL_ERROR.lock().unwrap() = None;
+        return None;
+    }
+    Some(err)
 }
 
 /// `ffmpeg.exe` on the PATH or where winget and the usual manual installs put it. Looked up at most
@@ -63,20 +79,60 @@ pub fn ffmpeg() -> Option<PathBuf> {
         dirs.push(Path::new(&pf).join("WinGet").join("Links"));
     }
     dirs.push(PathBuf::from(r"C:\ffmpeg\bin"));
+    // winget falls back to adding the package folder to the user's PATH when it can't make the
+    // link, and that PATH only reaches programs started later.
+    for root in [std::env::var_os("LOCALAPPDATA").map(|l| Path::new(&l).join("Microsoft")), std::env::var_os("ProgramFiles").map(PathBuf::from)]
+        .into_iter()
+        .flatten()
+    {
+        dirs.extend(winget_package_bins(&root.join("WinGet").join("Packages")));
+    }
     let found = dirs.into_iter().map(|d| d.join(exe)).find(|p| p.is_file());
     *cache = Some((Instant::now(), found.clone()));
     found
 }
 
+/// The `bin` folders of the FFmpeg packages winget unpacked under `packages`
+/// (`Gyan.FFmpeg_<source>\ffmpeg-<version>-full_build\bin`), newest version first.
+fn winget_package_bins(packages: &Path) -> Vec<PathBuf> {
+    let mut bins = vec![];
+    let Ok(pkgs) = std::fs::read_dir(packages) else { return bins };
+    for pkg in pkgs.flatten() {
+        if !pkg.file_name().to_string_lossy().to_ascii_lowercase().starts_with("gyan.ffmpeg") {
+            continue;
+        }
+        let Ok(builds) = std::fs::read_dir(pkg.path()) else { continue };
+        for build in builds.flatten() {
+            let bin = build.path().join("bin");
+            if bin.is_dir() {
+                bins.push(bin);
+            }
+        }
+    }
+    bins.sort_by(|a, b| b.cmp(a));
+    bins
+}
+
+/// What the library says when FFmpeg couldn't be installed: the reason, then how to do it by hand.
+fn install_failed(reason: &str) -> String {
+    let reason = reason.trim().trim_end_matches('.');
+    format!("{reason}. Download FFmpeg from {DOWNLOAD_URL}, put ffmpeg.exe in C:\\ffmpeg\\bin or a folder on the PATH, and try again.")
+}
+
 /// Installs FFmpeg with winget (the Gyan.FFmpeg package, which links `ffmpeg.exe` into winget's
 /// links folder). Blocks until winget is done, which takes a minute or so for the download.
 pub fn install(core: &Core) -> Result<(), String> {
+    // Look again rather than trust the minute-long cache: the user may have just put it there.
+    *FOUND.lock().unwrap() = None;
     if ffmpeg().is_some() {
+        *INSTALL_ERROR.lock().unwrap() = None;
+        core.emit_state();
         return Ok(());
     }
     if INSTALLING.swap(true, Ordering::Relaxed) {
-        return Ok(());
+        return Err("FFmpeg is already being installed".into());
     }
+    *INSTALL_ERROR.lock().unwrap() = None;
     core.emit_state();
     log("installing FFmpeg with winget");
     let mut cmd = Command::new("winget");
@@ -91,25 +147,41 @@ pub fn install(core: &Core) -> Result<(), String> {
     let out = cmd.output();
     *FOUND.lock().unwrap() = None;
     let found = ffmpeg().is_some();
-    INSTALLING.store(false, Ordering::Relaxed);
-    core.emit_state();
-    let out = match out {
+    let reason = match out {
+        _ if found => None,
         Err(e) => {
             log(format!("couldn't run winget: {e}"));
-            return Err("winget isn't available here. Install FFmpeg from ffmpeg.org and restart Backdrop.".into());
+            Some(if e.kind() == std::io::ErrorKind::NotFound {
+                "winget isn't on this PC (it comes with App Installer from the Microsoft Store)".to_string()
+            } else {
+                format!("winget wouldn't start ({e})")
+            })
         }
-        Ok(o) => o,
+        Ok(out) if out.status.success() => {
+            log("winget finished, but ffmpeg.exe isn't where Backdrop looks");
+            Some("winget installed FFmpeg, but Backdrop can't find ffmpeg.exe until it restarts".to_string())
+        }
+        Ok(out) => {
+            let tail = winget_said(&String::from_utf8_lossy(&out.stdout));
+            log(format!("winget didn't install FFmpeg ({}): {tail}", out.status));
+            Some(if tail.is_empty() { "winget couldn't install FFmpeg".to_string() } else { format!("winget couldn't install FFmpeg ({tail})") })
+        }
     };
-    if found {
+    if reason.is_none() {
         log("FFmpeg installed");
-        return Ok(());
     }
-    // winget redraws its progress with \r, so only the last piece of each line is what it said.
-    let text = String::from_utf8_lossy(&out.stdout);
-    let said: Vec<&str> = text.lines().filter_map(|l| l.rsplit('\r').map(str::trim).find(|p| !p.is_empty())).collect();
-    let tail = said[said.len().saturating_sub(3)..].join(" | ");
-    log(format!("winget didn't install FFmpeg ({}): {tail}", out.status));
-    Err(if tail.is_empty() { "winget couldn't install FFmpeg".to_string() } else { format!("winget couldn't install FFmpeg: {tail}") })
+    let result = reason.as_deref().map_or(Ok(()), |r| Err(install_failed(r)));
+    *INSTALL_ERROR.lock().unwrap() = reason;
+    INSTALLING.store(false, Ordering::Relaxed);
+    core.emit_state();
+    result
+}
+
+/// The last few things winget printed. It redraws its progress with \r, so only the last piece
+/// of each line is what it said.
+fn winget_said(stdout: &str) -> String {
+    let said: Vec<&str> = stdout.lines().filter_map(|l| l.rsplit('\r').map(str::trim).find(|p| !p.is_empty())).collect();
+    said[said.len().saturating_sub(3)..].join(" | ")
 }
 
 /// "Duration: 00:01:02.50," from FFmpeg's banner, in seconds.
@@ -248,5 +320,35 @@ mod tests {
         assert_eq!(duration("  Duration: 01:00:00.00, start"), Some(3600.0));
         assert_eq!(duration("  Duration: N/A, bitrate: N/A"), None);
         assert_eq!(duration("Stream #0:0"), None);
+    }
+
+    #[test]
+    fn failure_says_how_to_install_by_hand() {
+        let msg = install_failed("winget isn't on this PC.");
+        assert!(msg.starts_with("winget isn't on this PC. Download FFmpeg from https://ffmpeg.org/"), "{msg}");
+        assert!(msg.contains(r"C:\ffmpeg\bin"), "{msg}");
+        assert!(!msg.contains(".."), "{msg}");
+    }
+
+    #[test]
+    fn keeps_what_winget_said_last() {
+        let out = "Found FFmpeg [Gyan.FFmpeg]\r\n  ▒▒▒  10%\r  ▒▒▒▒ 50%\r\nDownload failed\r\n\r\nInstaller hash does not match\r\n";
+        assert_eq!(winget_said(out), "▒▒▒▒ 50% | Download failed | Installer hash does not match");
+        assert_eq!(winget_said(""), "");
+    }
+
+    #[test]
+    fn finds_ffmpeg_in_winget_package_folders() {
+        let root = std::env::temp_dir().join(format!("backdrop-ffmpeg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let pkg = root.join("Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe");
+        std::fs::create_dir_all(pkg.join("ffmpeg-7.1-full_build").join("bin")).unwrap();
+        std::fs::create_dir_all(pkg.join("ffmpeg-8.0-full_build").join("bin")).unwrap();
+        std::fs::create_dir_all(pkg.join("notes")).unwrap();
+        std::fs::create_dir_all(root.join("Other.Tool_x").join("v1").join("bin")).unwrap();
+        let bins = winget_package_bins(&root);
+        assert_eq!(bins, vec![pkg.join("ffmpeg-8.0-full_build").join("bin"), pkg.join("ffmpeg-7.1-full_build").join("bin")]);
+        assert!(winget_package_bins(&root.join("missing")).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

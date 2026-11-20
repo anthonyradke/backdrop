@@ -423,6 +423,12 @@
           "markdownDescription": "Enables the now_playing command without any pre-configured scope."
         },
         {
+          "description": "Enables the open_ffmpeg_download command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-ffmpeg-download",
+          "markdownDescription": "Enables the open_ffmpeg_download command without any pre-configured scope."
+        },
+        {
           "description": "Enables the open_library_dir command without any pre-configured scope.",
           "type": "string",
           "const": "allow-open-library-dir",
@@ -673,6 +679,12 @@
           "type": "string",
           "const": "deny-now-playing",
           "markdownDescription": "Denies the now_playing command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the open_ffmpeg_download command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-ffmpeg-download",
+          "markdownDescription": "Denies the open_ffmpeg_download command without any pre-configured scope."
         },
         {
           "description": "Denies the open_library_dir command without any pre-configured scope.",
