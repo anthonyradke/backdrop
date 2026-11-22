@@ -743,7 +743,9 @@ WE.Scene = class {
     await this.setupBloom();
     await WE.startScripts?.(this);
     this.wantsMedia = [...this.textures.keys()].some((n) => n.startsWith("$media")) || (this.scripts || []).some((s) => /\bmedia\w*Changed\b/.test(s.source));
-    this.wantsAudio = [...this.programs.values()].some((p) => Object.keys(p.uniforms).some((u) => u.startsWith("g_AudioSpectrum")))
+    // The cache holds promises, and a shader that failed to build stays in it as a rejection.
+    const programs = await Promise.all([...this.programs.values()].map((p) => p.catch(() => null)));
+    this.wantsAudio = programs.some((p) => p && Object.keys(p.uniforms || {}).some((u) => u.startsWith("g_AudioSpectrum")))
       || (this.scripts || []).some((s) => s.source.includes("registerAudioBuffers"));
     if (!this.layers.some((l) => l.base || l.draws)) throw new Error("nothing in this scene could be drawn");
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
