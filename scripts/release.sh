@@ -16,7 +16,9 @@ git ls-remote --exit-code --tags origin "refs/tags/v$v" >/dev/null && { echo "v$
 if [ "$(gh run list --workflow check.yml --commit "$(git rev-parse HEAD)" --json conclusion -q '.[0].conclusion' 2>/dev/null)" = failure ]; then
     echo "the check workflow failed on this commit; fix it first"; exit 1
 fi
-XWIN_ACCEPT_LICENSE=1 cargo xwin check -q --target x86_64-pc-windows-msvc --workspace --all-targets || { echo "Backdrop doesn't build for Windows; nothing was changed"; exit 1; }
+# cargo-xwin cross-compiles from Linux; on Windows the native toolchain checks the same target.
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) check="cargo check" ;; *) check="cargo xwin check" ;; esac
+XWIN_ACCEPT_LICENSE=1 $check -q --target x86_64-pc-windows-msvc --workspace --all-targets || { echo "Backdrop doesn't build for Windows; nothing was changed"; exit 1; }
 
 sed -i "0,/^version = \".*\"/s//version = \"$v\"/" Cargo.toml
 sed -i "0,/\"version\": \".*\"/s//\"version\": \"$v\"/" app/src-tauri/tauri.conf.json
